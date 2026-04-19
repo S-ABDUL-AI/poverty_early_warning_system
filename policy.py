@@ -1,7 +1,7 @@
 """
 Policy recommendations in plain language (one line per risk tier).
 
-These strings are shown directly in the app — avoid technical jargon.
+These strings are shown directly in the app; avoid technical jargon.
 """
 
 from __future__ import annotations

@@ -219,7 +219,7 @@ def generate_policy_brief(
     )
     p3 = (
         f"{theme_phrase} On a random slice of the same data, the score matched the recorded risk level "
-        f"about {acc}% of the time—use that as a sanity check, not a guarantee. "
+        f"about {acc}% of the time. Use that as a sanity check, not a guarantee. "
     )
     p4 = "Suggested next step: confirm food and labour programmes in the high-stress regions, and keep lighter monitoring where scores stay low."
 

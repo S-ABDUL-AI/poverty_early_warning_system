@@ -1,5 +1,5 @@
 """
-Poverty Early Warning System (PEWS) — Streamlit entry point.
+Poverty Early Warning System (PEWS): Streamlit entry point.
 
 Plain-language interface for exploring regional risk, model results, and policy options.
 """
@@ -58,7 +58,7 @@ def _sidebar_upload() -> None:
             st.session_state.model_bundle = None
             st.session_state._should_auto_train = True
             st.sidebar.success("File loaded.")
-        except Exception as exc:  # noqa: BLE001 — show friendly message to user
+        except Exception as exc:  # noqa: BLE001 (show friendly message to user)
             st.sidebar.error(f"Could not read that file: {exc}")
 
 
@@ -104,7 +104,7 @@ def _run_training(df_full) -> bool:
 
 def main() -> None:
     st.set_page_config(
-        page_title="PEWS — Poverty Early Warning",
+        page_title="PEWS: Poverty Early Warning",
         page_icon="📊",
         layout="wide",
         initial_sidebar_state="expanded",
@@ -149,22 +149,22 @@ def main() -> None:
     with st.expander("How to use this page", expanded=False):
         st.markdown(
             """
-1. **Numbers on screen** — By default you see sample data so the tool works immediately. Upload a CSV if you have real figures.  
-2. **Regions** — Use the sidebar list to focus on certain places; leave all selected for the full picture.  
-3. **Scores** — The app builds a risk band (low / medium / high) from your columns. It runs automatically the first time; use **Refresh risk scores** after you change the file.  
-4. **Read the story** — Use the **problem statement** (above) for why this view exists; then scroll to the summary, **policy brief**, and policy insights for counts, a reusable paragraph, and reasons tied to food prices, jobs, and incomes.  
-5. **Population** — Unless you upload a `population` column, people counts are **illustrative** for dashboards only.
+1. **Numbers on screen.** By default you see sample data so the tool works immediately. Upload a CSV if you have real figures.  
+2. **Regions.** Use the sidebar list to focus on certain places; leave all selected for the full picture.  
+3. **Scores.** The app builds a risk band (low / medium / high) from your columns. It runs automatically the first time; use **Refresh risk scores** after you change the file.  
+4. **Read the story.** Use the **problem statement** (above) for why this view exists; then scroll to the summary, **policy brief**, and policy insights for counts, a reusable paragraph, and reasons tied to food prices, jobs, and incomes.  
+5. **Population.** Unless you upload a `population` column, people counts are **illustrative** for dashboards only.
             """
         )
 
     st.subheader("Problem statement")
     st.info(
-        "Teams often spot rising hardship too late—when food and fuel costs jump, jobs thin out, "
+        "Teams often spot rising hardship too late. When food and fuel costs jump, jobs thin out, "
         "or incomes fall behind prices, the warning signs sit in different spreadsheets and reports. "
         "That makes it hard to compare regions fairly, agree on priorities in a meeting, or line up "
-        "cash, jobs, and safety-net programmes in time. **This tool** pulls a small set of indicators "
-        "into one view, flags where stress looks higher in *your* data, and pairs each band of risk "
-        "with plain suggested actions. It does not replace official surveys or local judgment—it "
+        "cash, jobs, and safety-net programmes in time. This tool pulls a small set of indicators "
+        "into one view, flags where stress looks higher in your data, and pairs each band of risk "
+        "with plain suggested actions. It does not replace official surveys or local judgment; it "
         "helps you start the conversation with a shared picture."
     )
 
@@ -196,7 +196,9 @@ def main() -> None:
         label="Share of rows the score got right when tested on a random slice of the same data",
         value=f"{result.accuracy * 100:.1f}%",
     )
-    st.caption("Higher is better, but real decisions should still use local knowledge—not this number alone.")
+    st.caption(
+        "Higher is better, but real decisions should still use local knowledge, not this number alone."
+    )
 
     st.subheader("Scores and suggested actions (row level)")
     display_order = [

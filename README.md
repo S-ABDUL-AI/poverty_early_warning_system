@@ -1,6 +1,6 @@
 # Poverty Early Warning System (PEWS)
 
-A **Streamlit** decision-support app for exploring **regional poverty risk** in tabular data. It trains a **Random Forest** classifier, shows **low / medium / high** risk bands, charts, and a **policy layer** with plain-language explanations and suggested actions—not official statistics.
+A **Streamlit** decision-support app for exploring **regional poverty risk** in tabular data. It trains a **Random Forest** classifier, shows **low / medium / high** risk bands, charts, and a **policy layer** with plain-language explanations and suggested actions. It is not official statistics.
 
 **Designed by Sherriff Abdul-Hamid.**
 
@@ -104,6 +104,12 @@ Open the URL shown in the terminal (usually `http://localhost:8501`).
 5. Read the **Summary dashboard**, **Policy brief**, **Policy insights**, and charts.
 
 Expand **How to use this page** at the top of the app for a fuller walkthrough.
+
+---
+
+## User-facing copy: compound words
+
+When you edit labels or narrative in the app, **keep standard hyphenated compounds** where they act as modifiers before a noun (for example **high-stress** regions, **day-to-day** pressure, **safety-net** programmes, **decision-support** screen). That matches normal English and avoids confusion with two separate words. Punctuation in sentences should use **periods, commas, or semicolons**, not em dashes (—).
 
 ---
 
