@@ -152,10 +152,21 @@ def main() -> None:
 1. **Numbers on screen** — By default you see sample data so the tool works immediately. Upload a CSV if you have real figures.  
 2. **Regions** — Use the sidebar list to focus on certain places; leave all selected for the full picture.  
 3. **Scores** — The app builds a risk band (low / medium / high) from your columns. It runs automatically the first time; use **Refresh risk scores** after you change the file.  
-4. **Read the story** — Scroll to the summary, policy brief, and policy insights for counts, a short paragraph you can reuse in notes, and reasons tied to food prices, jobs, and incomes.  
+4. **Read the story** — Use the **problem statement** (above) for why this view exists; then scroll to the summary, **policy brief**, and policy insights for counts, a reusable paragraph, and reasons tied to food prices, jobs, and incomes.  
 5. **Population** — Unless you upload a `population` column, people counts are **illustrative** for dashboards only.
             """
         )
+
+    st.subheader("Problem statement")
+    st.info(
+        "Teams often spot rising hardship too late—when food and fuel costs jump, jobs thin out, "
+        "or incomes fall behind prices, the warning signs sit in different spreadsheets and reports. "
+        "That makes it hard to compare regions fairly, agree on priorities in a meeting, or line up "
+        "cash, jobs, and safety-net programmes in time. **This tool** pulls a small set of indicators "
+        "into one view, flags where stress looks higher in *your* data, and pairs each band of risk "
+        "with plain suggested actions. It does not replace official surveys or local judgment—it "
+        "helps you start the conversation with a shared picture."
+    )
 
     st.info(st.session_state.data_note)
 
