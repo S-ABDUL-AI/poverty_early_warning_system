@@ -15,6 +15,7 @@ if str(_APP_DIR) not in sys.path:
     sys.path.insert(0, str(_APP_DIR))
 
 import streamlit as st
+import pandas as pd
 
 import data as data_mod
 import insights as insights_mod
