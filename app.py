@@ -171,16 +171,16 @@ This tool helps policymakers make data-driven decisions to reduce poverty and im
             """
         )
 
-    st.subheader("Problem statement")
-    st.info(
-        "Teams often spot rising hardship too late. When food and fuel costs jump, jobs thin out, "
-        "or incomes fall behind prices, the warning signs sit in different spreadsheets and reports. "
-        "That makes it hard to compare regions fairly, agree on priorities in a meeting, or line up "
-        "cash, jobs, and safety-net programmes in time. This tool pulls a small set of indicators "
-        "into one view, flags where stress looks higher in your data, and pairs each band of risk "
-        "with plain suggested actions. It does not replace official surveys or local judgment; it "
-        "helps you start the conversation with a shared picture."
-    )
+    with st.expander("Problem statement", expanded=False):
+        st.info(
+            "Teams often spot rising hardship too late. When food and fuel costs jump, jobs thin out, "
+            "or incomes fall behind prices, the warning signs sit in different spreadsheets and reports. "
+            "That makes it hard to compare regions fairly, agree on priorities in a meeting, or line up "
+            "cash, jobs, and safety-net programmes in time. This tool pulls a small set of indicators "
+            "into one view, flags where stress looks higher in your data, and pairs each band of risk "
+            "with plain suggested actions. It does not replace official surveys or local judgment; it "
+            "helps you start the conversation with a shared picture."
+        )
 
     st.info(st.session_state.data_note)
 
