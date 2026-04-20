@@ -64,17 +64,20 @@ def _sidebar_upload() -> None:
 
 
 def _sidebar_regions(df) -> list:
-    """Return list of regions to include in tables and charts (empty = all)."""
+    """Return regions to include in tables/charts using a clean single-select UI."""
     all_regions = sorted(df["region"].astype(str).unique().tolist())
     if not all_regions:
         return []
-    picked = st.sidebar.multiselect(
-        "Regions to show",
-        options=all_regions,
-        default=all_regions,
-        help="Narrow the tables and charts without changing the uploaded file.",
-    )
-    return picked if picked else all_regions
+    with st.sidebar.expander("Regions to show", expanded=True):
+        picked = st.selectbox(
+            "Choose a region view",
+            options=["All regions", *all_regions],
+            index=0,
+            help="Pick one region for focused analysis, or keep all regions for a full view.",
+        )
+    if picked == "All regions":
+        return all_regions
+    return [picked]
 
 
 def _filter_by_regions(df, regions: list):
