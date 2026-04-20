@@ -219,15 +219,6 @@ This tool helps policymakers make data-driven decisions to reduce poverty and im
         else preds_intel[preds_intel["region"].isin(region_pick)].copy()
     )
 
-    st.subheader("How well the score matches the data")
-    st.metric(
-        label="Share of rows the score got right when tested on a random slice of the same data",
-        value=f"{result.accuracy * 100:.1f}%",
-    )
-    st.caption(
-        "Higher is better, but real decisions should still use local knowledge, not this number alone."
-    )
-
     if preds_view.empty:
         st.warning(
             "No prediction rows match the current region filter. Select more regions in the sidebar, "
@@ -268,6 +259,15 @@ This tool helps policymakers make data-driven decisions to reduce poverty and im
                 "expected_impact": st.column_config.TextColumn("Expected impact (indicative)"),
                 "recommended_action": st.column_config.TextColumn("Action"),
             },
+        )
+
+    with st.expander("How well the score matches the data", expanded=False):
+        st.metric(
+            label="Share of rows the score got right when tested on a random slice of the same data",
+            value=f"{result.accuracy * 100:.1f}%",
+        )
+        st.caption(
+            "Higher is better, but real decisions should still use local knowledge, not this number alone."
         )
 
     with st.expander("Scores and suggested actions (row level)", expanded=False):
