@@ -7,6 +7,7 @@ Plain-language interface for exploring regional risk, model results, and policy 
 from __future__ import annotations
 
 import sys
+import html
 from pathlib import Path
 
 # Repo root (matches GitHub layout: modules live next to app.py, not under a package folder).
@@ -120,6 +121,32 @@ def main() -> None:
         """
         <style>
         div.block-container { padding-top: 0.65rem; padding-bottom: 1.2rem; }
+        .exec-card {
+            border: 1px solid rgba(100, 116, 139, 0.25);
+            background: rgba(248, 250, 252, 0.85);
+            border-radius: 10px;
+            padding: 0.75rem 0.9rem 0.85rem 0.9rem;
+            min-height: 120px;
+        }
+        .exec-card-label {
+            font-size: 0.78rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: #334155;
+            margin-bottom: 0.35rem;
+        }
+        .exec-card-text {
+            font-size: 1rem;
+            line-height: 1.5;
+            color: #0f172a;
+        }
+        .exec-card-value {
+            font-size: 2rem;
+            font-weight: 700;
+            line-height: 1.1;
+            color: #0f172a;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -245,15 +272,17 @@ This tool helps policymakers make data-driven decisions to reduce poverty and im
             .iloc[0]["region"]
         )
         high_row_share = float((intel_scope["predicted_risk"] >= 2).mean() * 100.0)
-        k1, k2, k3, k4 = st.columns(4)
-        with k1:
-            st.metric("High-stress regions", dash_now["high_risk_regions"])
-        with k2:
-            st.metric("Rows in highest stress band", f"{high_row_share:.1f}%")
-        with k3:
-            st.metric("People in highest-stress rows", f"{dash_now['population_high_risk_rows']:,}")
-        with k4:
-            st.metric("Top immediate focus region", str(top_region_now))
+        kpi_box = st.container(border=True)
+        with kpi_box:
+            k1, k2, k3, k4 = st.columns(4)
+            with k1:
+                st.metric("High-stress regions", dash_now["high_risk_regions"])
+            with k2:
+                st.metric("Rows in highest stress band", f"{high_row_share:.1f}%")
+            with k3:
+                st.metric("People in highest-stress rows", f"{dash_now['population_high_risk_rows']:,}")
+            with k4:
+                st.metric("Top immediate focus region", str(top_region_now))
 
         if action_impact.empty:
             focus_action = "No action available for this filter."
@@ -264,16 +293,40 @@ This tool helps policymakers make data-driven decisions to reduce poverty and im
             focus_action = str(focus_row["recommended_action"])
             focus_impact = str(focus_row["expected_impact"])
             focus_people = int(focus_row["estimated_people_reached"])
+        safe_action = html.escape(focus_action)
+        safe_impact = html.escape(focus_impact)
 
         a1, a2, a3 = st.columns((1.15, 1.25, 0.8), gap="medium")
         with a1:
-            st.markdown("**Priority action (now)**")
-            st.write(focus_action)
+            st.markdown(
+                f"""
+<div class="exec-card">
+  <div class="exec-card-label">Priority action (now)</div>
+  <div class="exec-card-text">{safe_action}</div>
+</div>
+                """,
+                unsafe_allow_html=True,
+            )
         with a2:
-            st.markdown("**Expected impact (indicative)**")
-            st.write(focus_impact)
+            st.markdown(
+                f"""
+<div class="exec-card">
+  <div class="exec-card-label">Expected impact (indicative)</div>
+  <div class="exec-card-text">{safe_impact}</div>
+</div>
+                """,
+                unsafe_allow_html=True,
+            )
         with a3:
-            st.metric("Estimated beneficiaries", f"{focus_people:,}")
+            st.markdown(
+                f"""
+<div class="exec-card">
+  <div class="exec-card-label">Estimated beneficiaries</div>
+  <div class="exec-card-value">{focus_people:,}</div>
+</div>
+                """,
+                unsafe_allow_html=True,
+            )
 
         with st.expander("Priority actions and expected impact (detail)", expanded=False):
             st.dataframe(
