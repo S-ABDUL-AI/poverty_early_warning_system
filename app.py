@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import sys
 import html
+import re
 from pathlib import Path
 
 # Repo root (matches GitHub layout: modules live next to app.py, not under a package folder).
@@ -85,6 +86,42 @@ def _filter_by_regions(df, regions: list):
     return df[df["region"].isin(regions)].copy()
 
 
+def _approx_people(value: float | int) -> str:
+    """Format large counts as rounded K/M shorthand, e.g. 3,555,999 -> ~4M."""
+    v = abs(int(round(float(value))))
+    if v >= 1_000_000:
+        return f"~{round(v / 1_000_000):,}M"
+    if v >= 1_000:
+        return f"~{round(v / 1_000):,}K"
+    return f"~{v:,}"
+
+
+def _approx_percent(value: float) -> str:
+    """Format percentages as rounded whole-number shorthand, e.g. 3.89 -> ~4%."""
+    return f"~{round(float(value))}%"
+
+
+def _approximate_text_numbers(text: str) -> str:
+    """Replace percentages and large comma numbers in text with rounded shorthand."""
+    out = str(text)
+    out = re.sub(
+        r"(\d+(?:\.\d+)?)%",
+        lambda m: f"~{round(float(m.group(1)))}%",
+        out,
+    )
+
+    def _big_num(match: re.Match[str]) -> str:
+        n = int(match.group(0).replace(",", ""))
+        if n >= 1_000_000:
+            return f"~{round(n / 1_000_000):,}M"
+        if n >= 1_000:
+            return f"~{round(n / 1_000):,}K"
+        return f"~{n}"
+
+    out = re.sub(r"\b\d{1,3}(?:,\d{3})+\b", _big_num, out)
+    return out
+
+
 def _run_training(df_full) -> bool:
     """Fit model, attach recommendations, store bundle. Returns False on error."""
     try:
@@ -127,6 +164,7 @@ def main() -> None:
             border-radius: 10px;
             padding: 0.75rem 0.9rem 0.85rem 0.9rem;
             min-height: 120px;
+            font-family: "Inter", "Segoe UI", "Roboto", "Helvetica Neue", Arial, sans-serif;
         }
         .exec-card-label {
             font-size: 0.78rem;
@@ -136,15 +174,10 @@ def main() -> None:
             color: #334155;
             margin-bottom: 0.35rem;
         }
-        .exec-card-text {
-            font-size: 1rem;
-            line-height: 1.5;
-            color: #0f172a;
-        }
-        .exec-card-value {
-            font-size: 2rem;
+        .exec-card-body {
+            font-size: 1.16rem;
             font-weight: 700;
-            line-height: 1.1;
+            line-height: 1.5;
             color: #0f172a;
         }
         </style>
@@ -272,17 +305,47 @@ This tool helps policymakers make data-driven decisions to reduce poverty and im
             .iloc[0]["region"]
         )
         high_row_share = float((intel_scope["predicted_risk"] >= 2).mean() * 100.0)
-        kpi_box = st.container(border=True)
-        with kpi_box:
-            k1, k2, k3, k4 = st.columns(4)
-            with k1:
-                st.metric("High-stress regions", dash_now["high_risk_regions"])
-            with k2:
-                st.metric("Rows in highest stress band", f"{high_row_share:.1f}%")
-            with k3:
-                st.metric("People in highest-stress rows", f"{dash_now['population_high_risk_rows']:,}")
-            with k4:
-                st.metric("Top immediate focus region", str(top_region_now))
+        k1, k2, k3, k4 = st.columns(4, gap="small")
+        with k1:
+            st.markdown(
+                f"""
+<div class="exec-card">
+  <div class="exec-card-label">High-stress regions</div>
+  <div class="exec-card-body">{int(dash_now["high_risk_regions"])}</div>
+</div>
+                """,
+                unsafe_allow_html=True,
+            )
+        with k2:
+            st.markdown(
+                f"""
+<div class="exec-card">
+  <div class="exec-card-label">Rows in highest stress band</div>
+  <div class="exec-card-body">{_approx_percent(high_row_share)}</div>
+</div>
+                """,
+                unsafe_allow_html=True,
+            )
+        with k3:
+            st.markdown(
+                f"""
+<div class="exec-card">
+  <div class="exec-card-label">People in highest-stress rows</div>
+  <div class="exec-card-body">{_approx_people(dash_now["population_high_risk_rows"])}</div>
+</div>
+                """,
+                unsafe_allow_html=True,
+            )
+        with k4:
+            st.markdown(
+                f"""
+<div class="exec-card">
+  <div class="exec-card-label">Top immediate focus region</div>
+  <div class="exec-card-body">{html.escape(str(top_region_now))}</div>
+</div>
+                """,
+                unsafe_allow_html=True,
+            )
 
         if action_impact.empty:
             focus_action = "No action available for this filter."
@@ -294,7 +357,7 @@ This tool helps policymakers make data-driven decisions to reduce poverty and im
             focus_impact = str(focus_row["expected_impact"])
             focus_people = int(focus_row["estimated_people_reached"])
         safe_action = html.escape(focus_action)
-        safe_impact = html.escape(focus_impact)
+        safe_impact = html.escape(_approximate_text_numbers(focus_impact))
 
         a1, a2, a3 = st.columns((1.15, 1.25, 0.8), gap="medium")
         with a1:
@@ -302,7 +365,7 @@ This tool helps policymakers make data-driven decisions to reduce poverty and im
                 f"""
 <div class="exec-card">
   <div class="exec-card-label">Priority action (now)</div>
-  <div class="exec-card-text">{safe_action}</div>
+  <div class="exec-card-body">{safe_action}</div>
 </div>
                 """,
                 unsafe_allow_html=True,
@@ -312,7 +375,7 @@ This tool helps policymakers make data-driven decisions to reduce poverty and im
                 f"""
 <div class="exec-card">
   <div class="exec-card-label">Expected impact (indicative)</div>
-  <div class="exec-card-text">{safe_impact}</div>
+  <div class="exec-card-body">{safe_impact}</div>
 </div>
                 """,
                 unsafe_allow_html=True,
@@ -322,7 +385,7 @@ This tool helps policymakers make data-driven decisions to reduce poverty and im
                 f"""
 <div class="exec-card">
   <div class="exec-card-label">Estimated beneficiaries</div>
-  <div class="exec-card-value">{focus_people:,}</div>
+  <div class="exec-card-body">{_approx_people(focus_people)}</div>
 </div>
                 """,
                 unsafe_allow_html=True,
