@@ -1,9 +1,8 @@
 """
-Community Vulnerability & Safety Net Targeting Tool
-SNAP and Food Security Risk Monitor for Program Officers
+Safety Net Risk Monitor
+SNAP and Food Security Vulnerability Targeting for Program Officers
 
 Designed by Sherriff Abdul-Hamid
-
 
 Positions the tool as a proactive targeting instrument for:
 - SNAP outreach coordinators and program officers
@@ -16,12 +15,18 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-import plotly.express as px
-from io import StringIO
+from datetime import date
+
+# Report generator (must be in same folder as this file)
+try:
+    from report_generator import build_report_bytes
+    REPORT_AVAILABLE = True
+except ImportError:
+    REPORT_AVAILABLE = False
 
 # ── PAGE CONFIG ────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Community Vulnerability & Safety Net Targeting Tool",
+    page_title="Safety Net Risk Monitor",
     page_icon="🎯",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -43,11 +48,10 @@ AMBER    = "#B8560A"
 AMBER_LT = "#FFFBEB"
 RULE     = "#E2E6EC"
 WHITE    = "#FFFFFF"
-GREY_BG  = "#F5F6F8"
 
-BAND_COLOR  = {"High": RED,   "Medium": AMBER,    "Low": GREEN}
-BAND_BG     = {"High": RED_LT,"Medium": AMBER_LT, "Low": GREEN_LT}
-BAND_THRESH = {"High": 65,    "Medium": 40}
+BAND_COLOR  = {"High": RED,    "Medium": AMBER,    "Low": GREEN}
+BAND_BG     = {"High": RED_LT, "Medium": AMBER_LT, "Low": GREEN_LT}
+BAND_THRESH = {"High": 65,     "Medium": 40}
 
 # ── CSS ────────────────────────────────────────────────────────
 st.markdown(f"""
@@ -96,6 +100,10 @@ st.markdown(f"""
     .insight-region{{font-weight:700;color:{INK};font-size:14px;}}
     .insight-why{{color:{BODY};font-size:12.5px;line-height:1.5;margin-top:4px;}}
 
+    .export-card{{background:white;border:1px solid {RULE};border-left:4px solid {GOLD};
+                  border-radius:4px;padding:14px 16px;font-size:13px;
+                  color:{BODY};line-height:1.6;}}
+
     .byline{{border-top:1px solid {RULE};padding-top:13px;margin-top:38px;
              color:{MUTED};font-size:11px;font-style:italic;}}
 
@@ -109,18 +117,18 @@ st.markdown(f"""
 
 # ── BUILT-IN SAMPLE DATA ──────────────────────────────────────
 BUILTIN = pd.DataFrame([
-    {"region":"Border Counties",   "avg_food_price_index":99.2, "avg_employment_rate":57.1,"avg_income_index":38.2,"avg_housing_cost_index":72.1,"population":20332377},
-    {"region":"Central Highlands", "avg_food_price_index":98.2, "avg_employment_rate":57.2,"avg_income_index":39.1,"avg_housing_cost_index":70.8,"population":21398282},
-    {"region":"Coastal Plain",     "avg_food_price_index":100.1,"avg_employment_rate":55.0,"avg_income_index":36.5,"avg_housing_cost_index":75.3,"population":19151694},
-    {"region":"Eastern Delta",     "avg_food_price_index":103.7,"avg_employment_rate":49.8,"avg_income_index":32.0,"avg_housing_cost_index":78.9,"population":16467093},
-    {"region":"Lake District",     "avg_food_price_index":100.4,"avg_employment_rate":55.2,"avg_income_index":37.8,"avg_housing_cost_index":71.5,"population":22565667},
-    {"region":"North Valley",      "avg_food_price_index":99.3, "avg_employment_rate":55.4,"avg_income_index":40.2,"avg_housing_cost_index":68.4,"population":19626792},
-    {"region":"Southern Corridor", "avg_food_price_index":98.5, "avg_employment_rate":54.9,"avg_income_index":41.5,"avg_housing_cost_index":67.2,"population":19254168},
-    {"region":"Western Plateau",   "avg_food_price_index":99.7, "avg_employment_rate":54.6,"avg_income_index":42.8,"avg_housing_cost_index":65.5,"population":17378072},
-    {"region":"Metro East",        "avg_food_price_index":94.1, "avg_employment_rate":66.3,"avg_income_index":58.4,"avg_housing_cost_index":55.2,"population":31200000},
-    {"region":"Pacific Coast",     "avg_food_price_index":91.2, "avg_employment_rate":70.1,"avg_income_index":63.5,"avg_housing_cost_index":52.1,"population":28500000},
-    {"region":"Midwest Plains",    "avg_food_price_index":93.8, "avg_employment_rate":67.4,"avg_income_index":55.1,"avg_housing_cost_index":57.8,"population":15800000},
-    {"region":"Capital Region",    "avg_food_price_index":97.5, "avg_employment_rate":61.2,"avg_income_index":48.3,"avg_housing_cost_index":62.1,"population":12400000},
+    {"region":"Border Counties",   "avg_food_price_index":99.2, "avg_employment_rate":57.1, "avg_income_index":38.2, "avg_housing_cost_index":72.1, "population":20332377},
+    {"region":"Central Highlands", "avg_food_price_index":98.2, "avg_employment_rate":57.2, "avg_income_index":39.1, "avg_housing_cost_index":70.8, "population":21398282},
+    {"region":"Coastal Plain",     "avg_food_price_index":100.1,"avg_employment_rate":55.0, "avg_income_index":36.5, "avg_housing_cost_index":75.3, "population":19151694},
+    {"region":"Eastern Delta",     "avg_food_price_index":103.7,"avg_employment_rate":49.8, "avg_income_index":32.0, "avg_housing_cost_index":78.9, "population":16467093},
+    {"region":"Lake District",     "avg_food_price_index":100.4,"avg_employment_rate":55.2, "avg_income_index":37.8, "avg_housing_cost_index":71.5, "population":22565667},
+    {"region":"North Valley",      "avg_food_price_index":99.3, "avg_employment_rate":55.4, "avg_income_index":40.2, "avg_housing_cost_index":68.4, "population":19626792},
+    {"region":"Southern Corridor", "avg_food_price_index":98.5, "avg_employment_rate":54.9, "avg_income_index":41.5, "avg_housing_cost_index":67.2, "population":19254168},
+    {"region":"Western Plateau",   "avg_food_price_index":99.7, "avg_employment_rate":54.6, "avg_income_index":42.8, "avg_housing_cost_index":65.5, "population":17378072},
+    {"region":"Metro East",        "avg_food_price_index":94.1, "avg_employment_rate":66.3, "avg_income_index":58.4, "avg_housing_cost_index":55.2, "population":31200000},
+    {"region":"Pacific Coast",     "avg_food_price_index":91.2, "avg_employment_rate":70.1, "avg_income_index":63.5, "avg_housing_cost_index":52.1, "population":28500000},
+    {"region":"Midwest Plains",    "avg_food_price_index":93.8, "avg_employment_rate":67.4, "avg_income_index":55.1, "avg_housing_cost_index":57.8, "population":15800000},
+    {"region":"Capital Region",    "avg_food_price_index":97.5, "avg_employment_rate":61.2, "avg_income_index":48.3, "avg_housing_cost_index":62.1, "population":12400000},
 ])
 
 CSV_COLUMNS = ["region","avg_food_price_index","avg_employment_rate",
@@ -129,17 +137,18 @@ CSV_COLUMNS = ["region","avg_food_price_index","avg_employment_rate",
 # ── SCORING ENGINE ─────────────────────────────────────────────
 def score_regions(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-    # Normalise 0-100 (higher = more stress)
+
     def norm(series, invert=False):
-        mn,mx = series.min(), series.max()
-        if mx == mn: return pd.Series([50.0]*len(series), index=series.index)
+        mn, mx = series.min(), series.max()
+        if mx == mn:
+            return pd.Series([50.0] * len(series), index=series.index)
         n = (series - mn) / (mx - mn) * 100
         return (100 - n) if invert else n
 
-    df["food_stress"]    = norm(df["avg_food_price_index"])          # higher price = more stress
-    df["employ_stress"]  = norm(df["avg_employment_rate"], invert=True) # lower employment = more stress
-    df["income_stress"]  = norm(df["avg_income_index"],    invert=True) # lower income = more stress
-    df["housing_stress"] = norm(df["avg_housing_cost_index"])        # higher cost = more stress
+    df["food_stress"]    = norm(df["avg_food_price_index"])
+    df["employ_stress"]  = norm(df["avg_employment_rate"],   invert=True)
+    df["income_stress"]  = norm(df["avg_income_index"],      invert=True)
+    df["housing_stress"] = norm(df["avg_housing_cost_index"])
 
     df["vulnerability_score"] = (
         df["food_stress"]    * 0.35 +
@@ -169,7 +178,7 @@ def score_regions(df: pd.DataFrame) -> pd.DataFrame:
         if row["employ_stress"] > 60:
             parts.append(f"employment rate below median ({row['avg_employment_rate']:.1f}%)")
         if row["income_stress"] > 60:
-            parts.append(f"income pressure above median")
+            parts.append("income pressure above median")
         if not parts:
             parts.append("combination of moderate pressure across all four indicators")
         return f"{row['risk_band']} vulnerability reflects: {'; '.join(parts)}."
@@ -180,7 +189,7 @@ def score_regions(df: pd.DataFrame) -> pd.DataFrame:
     df.insert(0, "rank", df.index + 1)
     return df
 
-MODEL_MATCH_RATE = 81   # from original app
+MODEL_MATCH_RATE = 81
 
 # ── SIDEBAR ────────────────────────────────────────────────────
 with st.sidebar:
@@ -192,8 +201,7 @@ with st.sidebar:
         help=f"CSV must contain: {', '.join(CSV_COLUMNS)}"
     )
 
-    use_builtin = uploaded is None
-    if use_builtin:
+    if uploaded is None:
         st.info("Using built-in illustrative data. Upload your own CSV for live analysis.")
         df_raw = BUILTIN.copy()
     else:
@@ -221,12 +229,14 @@ with st.sidebar:
 
     show_bands = st.multiselect(
         "Show priority bands",
-        options=["High","Medium","Low"],
-        default=["High","Medium","Low"],
+        options=["High", "Medium", "Low"],
+        default=["High", "Medium", "Low"],
     )
 
     if st.button("🔄  Refresh risk scores", use_container_width=True):
         st.cache_data.clear()
+        if "report_bytes" in st.session_state:
+            del st.session_state["report_bytes"]
 
     st.markdown("""
     <div class="sb-foot">
@@ -243,27 +253,27 @@ df_filtered = df[df["risk_band"].isin(show_bands)]
 if region_view != "All regions":
     df_filtered = df_filtered[df_filtered["region"] == region_view]
 
-n_high   = (df["risk_band"] == "High").sum()
-n_medium = (df["risk_band"] == "Medium").sum()
-n_low    = (df["risk_band"] == "Low").sum()
-pop_high = df[df["risk_band"] == "High"]["population"].sum()
+n_high   = int((df["risk_band"] == "High").sum())
+n_medium = int((df["risk_band"] == "Medium").sum())
+n_low    = int((df["risk_band"] == "Low").sum())
+pop_high = int(df[df["risk_band"] == "High"]["population"].sum())
 top_region = df.iloc[0]
 top_action = top_region["recommended_action"].split("+")[0].strip()
 
 # ── HERO ───────────────────────────────────────────────────────
 st.markdown(f"""
 <div class="hero">
-    <div class="hero-eye">Community Vulnerability · Safety Net Targeting · SNAP &amp; Food Security</div>
+    <div class="hero-eye">Safety Net Risk Monitor · SNAP &amp; Food Security Targeting</div>
     <div class="hero-title">Find the communities that need SNAP and food<br>security support — before they reach crisis point.</div>
     <div class="hero-sub">
     A proactive targeting tool for SNAP outreach coordinators, state food security program officers,
     and federal poverty reduction administrators. Combines food price pressure, employment rates,
     income levels, and housing costs into a composite vulnerability score — with structured policy
-    briefs and immediate recommended actions per region.
+    briefs, immediate recommended actions, and a downloadable McKinsey-style report.
     </div>
     <div class="hero-meta">
     {len(df)} regions · 4 indicators · {MODEL_MATCH_RATE}% model match rate ·
-    Upload your own CSV or use built-in sample data
+    Upload your own CSV or use built-in sample data · PDF report download available
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -335,8 +345,8 @@ st.markdown('<div class="sec-lbl">Policy Brief</div>', unsafe_allow_html=True)
 st.markdown('<div class="sec-ttl">Risk · Implication · Action</div>', unsafe_allow_html=True)
 st.markdown('<div class="sec-sub">Structured decision summary for program directors and policy teams.</div>', unsafe_allow_html=True)
 
-pct_high = n_high / len(df) * 100
-pct_med  = (n_high + n_medium) / len(df) * 100
+pct_high  = n_high / len(df) * 100
+pct_med   = (n_high + n_medium) / len(df) * 100
 top3_food = df.head(3)["avg_food_price_index"].mean()
 
 b1, b2, b3 = st.columns(3)
@@ -345,18 +355,18 @@ with b1:
     <div class="card brief-risk">
     <div class="card-lbl" style="color:{RED};">Risk</div>
     <div class="card-body">
-    <strong>{n_high} regions</strong> ({pct_high:.0f}% of the panel) are in the highest vulnerability band.
-    Combined, they represent an estimated <strong>~{pop_high/1e6:.0f}M people</strong> facing
-    elevated food price pressure, low employment, and limited income capacity — the conditions
-    that most strongly predict SNAP enrollment gaps.
+    <strong>{n_high} regions</strong> ({pct_high:.0f}% of the panel) are in the highest
+    vulnerability band. Combined, they represent an estimated <strong>~{pop_high/1e6:.0f}M
+    people</strong> facing elevated food price pressure, low employment, and limited income
+    capacity — the conditions that most strongly predict SNAP enrollment gaps.
     </div></div>""", unsafe_allow_html=True)
 with b2:
     st.markdown(f"""
     <div class="card brief-impl">
     <div class="card-lbl" style="color:{NAVY};">Implication</div>
     <div class="card-body">
-    <strong>{pct_med:.0f}% of regions</strong> require active attention — either immediate SNAP outreach
-    or structured monitoring. Top-3 regions average a food price index of
+    <strong>{pct_med:.0f}% of regions</strong> require active attention — either immediate
+    SNAP outreach or structured monitoring. Top-3 regions average a food price index of
     <strong>{top3_food:.1f}</strong>, above the panel baseline, compounding cost-of-living
     pressure on households already at or near eligibility thresholds.
     </div></div>""", unsafe_allow_html=True)
@@ -371,7 +381,7 @@ with b3:
     (4) Link disbursements to food-price and employment monitoring data.
     </div></div>""", unsafe_allow_html=True)
 
-# ── POLICY INSIGHTS TABLE ──────────────────────────────────────
+# ── POLICY INSIGHTS ───────────────────────────────────────────
 st.markdown('<div class="sec-lbl">Policy Insights</div>', unsafe_allow_html=True)
 st.markdown('<div class="sec-ttl">Why Each Region Looks the Way It Does</div>', unsafe_allow_html=True)
 st.markdown('<div class="sec-sub">Plain-language read per region — food costs, employment, income, and housing pressure.</div>', unsafe_allow_html=True)
@@ -380,65 +390,67 @@ for _, row in df_filtered.iterrows():
     bc = BAND_COLOR[row["risk_band"]]
     bg = BAND_BG[row["risk_band"]]
     st.markdown(f"""
-    <div class="insight-row" style="border-left: 4px solid {bc};">
-    <div style="display:flex; justify-content:space-between; align-items:center;">
+    <div class="insight-row" style="border-left:4px solid {bc};">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
         <div class="insight-region">{row['region']}</div>
-        <span class="band-pill" style="background:{bg}; color:{bc};">{row['risk_band']}</span>
+        <span class="band-pill" style="background:{bg};color:{bc};">{row['risk_band']}</span>
     </div>
-    <div style="display:flex; gap:24px; margin-top:6px; font-size:12px; color:{MUTED};">
+    <div style="display:flex;gap:24px;margin-top:6px;font-size:12px;color:{MUTED};">
         <span>Score: <strong style="color:{INK};">{row['vulnerability_score']}</strong></span>
         <span>Food index: <strong>{row['avg_food_price_index']:.1f}</strong></span>
         <span>Employment: <strong>{row['avg_employment_rate']:.1f}%</strong></span>
         <span>Population: <strong>{row['population']/1e6:.1f}M</strong></span>
     </div>
     <div class="insight-why">📋 {row['why_this_outlook']}</div>
-    <div style="margin-top:5px; font-size:11.5px; color:{NAVY}; font-weight:600;">
+    <div style="margin-top:5px;font-size:11.5px;color:{NAVY};font-weight:600;">
         → {row['recommended_action']}
     </div>
     </div>
     """, unsafe_allow_html=True)
 
-# ── CHARTS ─────────────────────────────────────────────────────
+# ── CHARTS ────────────────────────────────────────────────────
 st.markdown('<div class="sec-lbl">Charts</div>', unsafe_allow_html=True)
 st.markdown('<div class="sec-ttl">Vulnerability Score by Region · What Drives the Scores</div>', unsafe_allow_html=True)
 
 chart1, chart2 = st.columns([3, 2])
 
 with chart1:
-    df_c = df.sort_values("vulnerability_score")
-    colors = [BAND_COLOR[b] for b in df_c["risk_band"]]
+    df_c    = df.sort_values("vulnerability_score")
+    clrs    = [BAND_COLOR[b] for b in df_c["risk_band"]]
+    avg_sc  = df["vulnerability_score"].mean()
+
     fig = go.Figure()
     fig.add_trace(go.Bar(
         y=df_c["region"], x=df_c["vulnerability_score"],
-        orientation='h',
-        marker=dict(color=colors, line=dict(color='rgba(0,0,0,0)')),
+        orientation="h",
+        marker=dict(color=clrs, line=dict(color="rgba(0,0,0,0)")),
         text=df_c["vulnerability_score"].apply(lambda x: f"{x:.1f}"),
-        textposition='outside',
+        textposition="outside",
         textfont=dict(size=10, color=INK),
-        hovertemplate='<b>%{y}</b><br>Score: %{x:.1f}<extra></extra>',
+        hovertemplate="<b>%{y}</b><br>Score: %{x:.1f}<extra></extra>",
         width=0.7,
     ))
-    avg_score = df["vulnerability_score"].mean()
-    fig.add_vline(x=avg_score, line_dash="dot", line_color=MUTED, line_width=1.2,
-                  annotation_text=f"Avg {avg_score:.1f}", annotation_position="top right",
+    fig.add_vline(x=avg_sc, line_dash="dot", line_color=MUTED, line_width=1.2,
+                  annotation_text=f"Avg {avg_sc:.1f}", annotation_position="top right",
                   annotation_font=dict(size=9, color=MUTED))
     fig.update_layout(
         height=420, margin=dict(l=0, r=30, t=8, b=35),
-        plot_bgcolor='white', paper_bgcolor='white',
-        xaxis=dict(title=dict(text="Vulnerability score (0–100)", font=dict(size=11, color=MUTED)),
+        plot_bgcolor="white", paper_bgcolor="white",
+        xaxis=dict(title=dict(text="Vulnerability score (0–100)",
+                              font=dict(size=11, color=MUTED)),
                    showgrid=False, zeroline=False, showline=True, linecolor=RULE,
-                   tickfont=dict(size=9, color=BODY), range=[0, df["vulnerability_score"].max()*1.22]),
+                   tickfont=dict(size=9, color=BODY),
+                   range=[0, df["vulnerability_score"].max() * 1.22]),
         yaxis=dict(showgrid=False, tickfont=dict(size=11, color=INK)),
         showlegend=False,
     )
     st.plotly_chart(fig, use_container_width=True)
     leg_c = st.columns(3)
     for col, (band_, clr) in zip(leg_c, BAND_COLOR.items()):
-        col.markdown(f'<span style="color:{clr}; font-weight:700; font-size:12px;">● {band_}</span>',
+        col.markdown(f'<span style="color:{clr};font-weight:700;font-size:12px;">● {band_}</span>',
                      unsafe_allow_html=True)
 
 with chart2:
-    # Method explanation card
     st.markdown(f"""
     <div class="card" style="margin-bottom:12px;">
     <div class="card-lbl" style="color:{NAVY};">How the score is built</div>
@@ -448,29 +460,29 @@ with chart2:
     <strong>Employment rate (30%)</strong> — labour market capacity (inverted)<br>
     <strong>Income index (25%)</strong> — household income capacity (inverted)<br>
     <strong>Housing cost index (10%)</strong> — cost-of-shelter burden<br><br>
-    Thresholds: <span style="color:{RED}; font-weight:700;">High ≥ {BAND_THRESH['High']}</span> ·
-    <span style="color:{AMBER}; font-weight:700;">Medium ≥ {BAND_THRESH['Medium']}</span> ·
-    <span style="color:{GREEN}; font-weight:700;">Low &lt; {BAND_THRESH['Medium']}</span>
+    Thresholds: <span style="color:{RED};font-weight:700;">High ≥ {BAND_THRESH['High']}</span> ·
+    <span style="color:{AMBER};font-weight:700;">Medium ≥ {BAND_THRESH['Medium']}</span> ·
+    <span style="color:{GREEN};font-weight:700;">Low &lt; {BAND_THRESH['Medium']}</span>
     </div></div>""", unsafe_allow_html=True)
 
-    # Feature weights chart
     fi = pd.DataFrame({
-        "Indicator": ["Food price pressure","Employment gap","Income pressure","Housing cost"],
-        "Weight":    [0.35, 0.30, 0.25, 0.10]
+        "Indicator": ["Food price pressure", "Employment gap",
+                      "Income pressure", "Housing cost"],
+        "Weight":    [0.35, 0.30, 0.25, 0.10],
     })
     fig_fi = go.Figure()
     fig_fi.add_trace(go.Bar(
-        x=fi["Weight"], y=fi["Indicator"], orientation='h',
-        marker=dict(color=NAVY, line=dict(color='rgba(0,0,0,0)')),
+        x=fi["Weight"], y=fi["Indicator"], orientation="h",
+        marker=dict(color=NAVY, line=dict(color="rgba(0,0,0,0)")),
         text=fi["Weight"].apply(lambda x: f"{x*100:.0f}%"),
-        textposition='outside',
+        textposition="outside",
         textfont=dict(size=11, color=INK),
-        hovertemplate='%{y}: %{x:.0%}<extra></extra>',
+        hovertemplate="%{y}: %{x:.0%}<extra></extra>",
     ))
     fig_fi.update_layout(
         title=dict(text="Indicator weights", font=dict(size=13, color=INK, family="Georgia")),
         height=220, margin=dict(l=0, r=30, t=30, b=15),
-        plot_bgcolor='white', paper_bgcolor='white',
+        plot_bgcolor="white", paper_bgcolor="white",
         xaxis=dict(showgrid=False, zeroline=False, showline=True, linecolor=RULE,
                    tickformat=".0%", tickfont=dict(size=9, color=BODY),
                    title=dict(text="Relative weight", font=dict(size=10, color=MUTED))),
@@ -480,40 +492,113 @@ with chart2:
     st.plotly_chart(fig_fi, use_container_width=True)
 
     st.markdown(f"""
-    <div style="background:#EFF6FF; border:1px solid #BFDBFE; border-radius:12px;
-                padding:5px 12px; display:inline-block; font-size:12px;
-                color:{NAVY}; font-weight:600; margin-top:4px;">
+    <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:12px;
+                padding:5px 12px;display:inline-block;font-size:12px;
+                color:{NAVY};font-weight:600;margin-top:4px;">
     🔬 Model match rate: {MODEL_MATCH_RATE}% on held-out validation regions
     </div>
     """, unsafe_allow_html=True)
 
-# ── REGIONAL SUMMARY TABLE ─────────────────────────────────────
+# ── FULL REGIONAL TABLE ────────────────────────────────────────
 st.markdown('<div class="sec-lbl">Full Regional Panel</div>', unsafe_allow_html=True)
 st.markdown('<div class="sec-ttl">All Regions — Ranked by Vulnerability Score</div>', unsafe_allow_html=True)
 
 tbl = df_filtered[["rank","region","risk_band","vulnerability_score",
                     "avg_food_price_index","avg_employment_rate","population"]].copy()
-tbl["population"] = tbl["population"].apply(lambda x: f"{x:,.0f}")
+tbl["population"]           = tbl["population"].apply(lambda x: f"{x:,.0f}")
 tbl["avg_food_price_index"] = tbl["avg_food_price_index"].apply(lambda x: f"{x:.1f}")
 tbl["avg_employment_rate"]  = tbl["avg_employment_rate"].apply(lambda x: f"{x:.1f}%")
 
-st.dataframe(tbl.rename(columns={
-    "rank":"Rank","region":"Region","risk_band":"Priority",
-    "vulnerability_score":"Score","avg_food_price_index":"Food Index",
-    "avg_employment_rate":"Employment","population":"Population"
-}), hide_index=True, use_container_width=True,
+st.dataframe(
+    tbl.rename(columns={
+        "rank":"Rank","region":"Region","risk_band":"Priority",
+        "vulnerability_score":"Score","avg_food_price_index":"Food Index",
+        "avg_employment_rate":"Employment","population":"Population",
+    }),
+    hide_index=True,
+    use_container_width=True,
     column_config={
         "Score": st.column_config.ProgressColumn(
             format="%.1f", min_value=0, max_value=100, width="medium"),
         "Rank":  st.column_config.NumberColumn(width="small"),
-    }
+    },
 )
 
-csv_out = df_filtered[["rank","region","risk_band","vulnerability_score",
-    "avg_food_price_index","avg_employment_rate","avg_income_index",
-    "recommended_action","why_this_outlook","population"]].to_csv(index=False)
-st.download_button("📥 Download full panel (CSV)", data=csv_out,
-                   file_name="community_vulnerability_targeting.csv", mime="text/csv")
+# ── EXPORT — PDF + CSV ─────────────────────────────────────────
+st.markdown('<div class="sec-lbl">Export</div>', unsafe_allow_html=True)
+st.markdown('<div class="sec-ttl">Download McKinsey-Style Policy Report</div>',
+            unsafe_allow_html=True)
+st.markdown(
+    '<div class="sec-sub">Full PDF briefing document — cover page, executive snapshot, '
+    'policy brief, regional insights, vulnerability charts, and methodology note. '
+    'Ready to share with programme directors, funders, or government partners. '
+    'CSV export also available below.</div>',
+    unsafe_allow_html=True)
+
+report_col1, report_col2 = st.columns([1, 2])
+
+with report_col1:
+    if REPORT_AVAILABLE:
+        if st.button("📄  Generate Report PDF",
+                     use_container_width=True,
+                     type="primary",
+                     help="Builds a McKinsey-style PDF from the current dataset and scores."):
+            with st.spinner("Building your report…"):
+                try:
+                    pdf_bytes = build_report_bytes(
+                        df,
+                        model_match=MODEL_MATCH_RATE,
+                    )
+                    st.session_state["report_bytes"] = pdf_bytes
+                    st.success("Report ready — click Download below.")
+                except Exception as e:
+                    st.error(f"Report generation failed: {e}")
+
+        if "report_bytes" in st.session_state:
+            fname = f"safety_net_risk_report_{date.today().strftime('%Y-%m-%d')}.pdf"
+            st.download_button(
+                label="⬇  Download PDF Report",
+                data=st.session_state["report_bytes"],
+                file_name=fname,
+                mime="application/pdf",
+                use_container_width=True,
+            )
+    else:
+        st.warning(
+            "PDF generation unavailable. "
+            "Ensure `report_generator.py` is in the same folder as `app.py` "
+            "and that `reportlab`, `pypdf`, and `matplotlib` are installed."
+        )
+
+    # CSV download always available
+    st.markdown("<br>", unsafe_allow_html=True)
+    csv_out = df_filtered[[
+        "rank","region","risk_band","vulnerability_score",
+        "avg_food_price_index","avg_employment_rate","avg_income_index",
+        "recommended_action","why_this_outlook","population",
+    ]].to_csv(index=False)
+    st.download_button(
+        "📥  Download full panel (CSV)",
+        data=csv_out,
+        file_name="community_vulnerability_targeting.csv",
+        mime="text/csv",
+        use_container_width=True,
+    )
+
+with report_col2:
+    st.markdown(f"""
+    <div class="export-card">
+    <strong style="color:{INK};">What's in the PDF report:</strong><br><br>
+    📋 &nbsp;<strong>Cover page</strong> — report date, region count, model match rate<br>
+    📊 &nbsp;<strong>Executive snapshot</strong> — 4 KPI boxes, priority band distribution table<br>
+    ⚠️ &nbsp;<strong>Policy brief</strong> — Risk · Implication · Action Now (structured cards)<br>
+    📈 &nbsp;<strong>Vulnerability score chart</strong> — all regions, color-coded by priority band<br>
+    🔍 &nbsp;<strong>Indicator weight chart</strong> — what drives the scores, with methodology note<br>
+    📝 &nbsp;<strong>Plain-language insight per region</strong> — score, reasoning, and recommended action<br>
+    🔬 &nbsp;<strong>Scope note & limitations</strong> — 4 caveats and data source citations<br>
+    ✍️ &nbsp;<strong>Credentialed byline</strong> — author, USAID/UNDP/UKAID references, Obama Foundation<br>
+    </div>
+    """, unsafe_allow_html=True)
 
 # ── FOOTER ─────────────────────────────────────────────────────
 st.markdown(f"""
@@ -527,6 +612,7 @@ own CSV data or integrate with USDA FNS administrative records.</em><br><br>
 Other tools:
 <a href="https://chpghrwawmvddoquvmniwm.streamlit.app/">Medicaid Access Risk Monitor</a> ·
 <a href="https://smart-resource-allocation-dashboard-eudzw5r2f9pbu4qyw3psez.streamlit.app/">Public Budget Allocation Tool</a> ·
+<a href="https://impact-allocation-engine-ahxxrbgwmvyapwmifahk2b.streamlit.app/">GovFund Allocation Engine</a> ·
 <a href="https://www.linkedin.com/in/abdul-hamid-sherriff-08583354/">LinkedIn</a>
 </div>
 """, unsafe_allow_html=True)
