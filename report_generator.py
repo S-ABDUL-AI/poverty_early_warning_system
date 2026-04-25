@@ -1,24 +1,9 @@
 """
 report_generator.py
-McKinsey-style PDF report for the Safety Net Risk Monitor.
-
-Generates a downloadable PDF with:
-  - Cover page (black + gold, McKinsey sandwich)
-  - Executive Snapshot
-  - Policy Brief (Risk / Implication / Action)
-  - Regional Priority Table
-  - Policy Insights per region
-  - Vulnerability Score Chart
-  - Methodology Note
-  - References & Byline
-
-Usage (inside Streamlit app):
-    from report_generator import build_report_bytes
-    pdf_bytes = build_report_bytes(df_scored, budget_label, model_match)
-    st.download_button("Download Report", pdf_bytes, file_name="report.pdf")
+McKinsey-style PDF report for Safety Net Risk Monitor
+Built by Sherriff Abdul-Hamid
 """
 
-from __future__ import annotations
 import io
 from datetime import date
 
@@ -26,726 +11,634 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-import numpy as np
-import pandas as pd
 
-from reportlab.lib.pagesizes import letter
+from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
-from reportlab.lib.units import inch
-from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_JUSTIFY, TA_RIGHT
+from reportlab.lib.units import mm
 from reportlab.lib.styles import ParagraphStyle
+from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
 from reportlab.platypus import (
-    BaseDocTemplate, Frame, PageTemplate,
-    Paragraph, Spacer, Table, TableStyle,
-    HRFlowable, PageBreak, Image, KeepTogether,
+    BaseDocTemplate, PageTemplate, Frame, Paragraph,
+    Spacer, Table, TableStyle, Image, KeepTogether,
+    HRFlowable, PageBreak,
 )
-from reportlab.platypus import NextPageTemplate
 from reportlab.pdfgen import canvas as rl_canvas
-from pypdf import PdfWriter, PdfReader
 
-# ── PALETTE ───────────────────────────────────────────────────
-C = {
-    "black":     colors.HexColor("#0A0A0A"),
-    "charcoal":  colors.HexColor("#1C1C1C"),
-    "charcoal2": colors.HexColor("#252525"),
-    "gold":      colors.HexColor("#C9A84C"),
-    "gold_deep": colors.HexColor("#A67C2E"),
-    "gold_light":colors.HexColor("#E8C97A"),
-    "gold_wash": colors.HexColor("#2A2310"),
-    "white":     colors.white,
-    "off_white": colors.HexColor("#F8F5EE"),
-    "grey1":     colors.HexColor("#F2EEE5"),
-    "grey2":     colors.HexColor("#DDD8CC"),
-    "grey3":     colors.HexColor("#9A9080"),
-    "grey4":     colors.HexColor("#4A4035"),
-    "navy":      colors.HexColor("#0A1F44"),
-    "red":       colors.HexColor("#C8382A"),
-    "amber":     colors.HexColor("#B8560A"),
-    "green":     colors.HexColor("#1A7A2E"),
-    "ink":       colors.HexColor("#111111"),
-}
+# ── DESIGN TOKENS ──────────────────────────────────────────────
+NAVY     = colors.HexColor("#0A1F44")
+NAVY_MID = colors.HexColor("#152B5C")
+GOLD     = colors.HexColor("#C9A84C")
+GOLD_LT  = colors.HexColor("#FDF6E3")
+INK      = colors.HexColor("#1A1A1A")
+BODY_C   = colors.HexColor("#2C3E50")
+MUTED    = colors.HexColor("#6B7280")
+RED_C    = colors.HexColor("#C8382A")
+RED_LT   = colors.HexColor("#FEF2F2")
+GREEN_C  = colors.HexColor("#1A7A2E")
+GREEN_LT = colors.HexColor("#F0FDF4")
+AMBER_C  = colors.HexColor("#B8560A")
+AMBER_LT = colors.HexColor("#FFFBEB")
+RULE_C   = colors.HexColor("#E2E6EC")
+WHITE_C  = colors.white
+LIGHT_BG = colors.HexColor("#F7F9FC")
 
-BAND_COLOR = {"High": C["red"], "Medium": C["amber"], "Low": C["green"]}
-HEX_BAND   = {"High": "#C8382A", "Medium": "#B8560A", "Low": "#1A7A2E"}
+BAND_RLCOLOR = {"High": RED_C,   "Medium": AMBER_C,   "Low": GREEN_C}
+BAND_RLBG    = {"High": RED_LT,  "Medium": AMBER_LT,  "Low": GREEN_LT}
 
-# ── FONTS ─────────────────────────────────────────────────────
-F_SERIF = "Times-Roman"
-F_SERIF_B= "Times-Bold"
-F_SANS  = "Helvetica"
-F_SANS_B= "Helvetica-Bold"
-F_SANS_I= "Helvetica-Oblique"
+W, H = A4
+ML, MR = 18*mm, 18*mm
+CONTENT_W = W - ML - MR
 
-# ── PAGE DIMS (US Letter) ─────────────────────────────────────
-PW, PH = letter          # 612 × 792 pt
-ML = MR = 0.65 * inch
-MT = MB = 0.65 * inch
-CW = PW - ML - MR        # ~7.2"
 
 # ── STYLES ────────────────────────────────────────────────────
-def S(name, **kw):
-    """Quick ParagraphStyle factory."""
-    return ParagraphStyle(name, **kw)
+def _S():
+    def ps(name, **kw):
+        return ParagraphStyle(name, **kw)
+    return {
+        "eyebrow":    ps("eyebrow",    fontName="Helvetica-Bold", fontSize=7,
+                          textColor=GOLD, leading=10, spaceAfter=2),
+        "cover_h1":   ps("cover_h1",   fontName="Times-Bold", fontSize=24,
+                          textColor=WHITE_C, leading=28, spaceAfter=8),
+        "cover_sub":  ps("cover_sub",  fontName="Helvetica", fontSize=10,
+                          textColor=colors.HexColor("#CADCFC"), leading=14, spaceAfter=4),
+        "cover_meta": ps("cover_meta", fontName="Helvetica", fontSize=8,
+                          textColor=GOLD, leading=11),
+        "h2":         ps("h2",         fontName="Times-Bold", fontSize=15,
+                          textColor=INK, leading=19, spaceAfter=3),
+        "h3":         ps("h3",         fontName="Helvetica-Bold", fontSize=10,
+                          textColor=NAVY, leading=13, spaceAfter=2),
+        "label":      ps("label",      fontName="Helvetica-Bold", fontSize=7,
+                          textColor=MUTED, leading=9, spaceAfter=2),
+        "body":       ps("body",       fontName="Helvetica", fontSize=9,
+                          textColor=BODY_C, leading=13, spaceAfter=4),
+        "body_sm":    ps("body_sm",    fontName="Helvetica", fontSize=8,
+                          textColor=MUTED, leading=11, spaceAfter=2),
+        "italic_sm":  ps("italic_sm",  fontName="Helvetica-Oblique", fontSize=8,
+                          textColor=MUTED, leading=10),
+        "kpi_val":    ps("kpi_val",    fontName="Times-Bold", fontSize=21,
+                          textColor=INK, leading=23, spaceAfter=0),
+        "kpi_lbl":    ps("kpi_lbl",    fontName="Helvetica-Bold", fontSize=7,
+                          textColor=MUTED, leading=9, spaceAfter=1),
+        "kpi_sub":    ps("kpi_sub",    fontName="Helvetica", fontSize=7,
+                          textColor=MUTED, leading=9, spaceAfter=0),
+        "tbl_head":   ps("tbl_head",   fontName="Helvetica-Bold", fontSize=7,
+                          textColor=WHITE_C, leading=9),
+        "tbl_cell":   ps("tbl_cell",   fontName="Helvetica", fontSize=8,
+                          textColor=BODY_C, leading=10),
+        "tbl_bold":   ps("tbl_bold",   fontName="Helvetica-Bold", fontSize=8,
+                          textColor=INK, leading=10),
+        "insight_r":  ps("insight_r",  fontName="Helvetica-Bold", fontSize=9,
+                          textColor=INK, leading=12),
+        "insight_w":  ps("insight_w",  fontName="Helvetica", fontSize=8,
+                          textColor=BODY_C, leading=11),
+        "action":     ps("action",     fontName="Helvetica-Bold", fontSize=8,
+                          textColor=NAVY, leading=11),
+        "footer":     ps("footer",     fontName="Helvetica", fontSize=7,
+                          textColor=MUTED, leading=9),
+        "right":      ps("right",      fontName="Helvetica", fontSize=8,
+                          textColor=BODY_C, leading=10, alignment=TA_RIGHT),
+        "center":     ps("center",     fontName="Helvetica", fontSize=8,
+                          textColor=BODY_C, leading=10, alignment=TA_CENTER),
+    }
 
-SEC_LBL = S("sec_lbl", fontName=F_SANS_B,  fontSize=7.5,  textColor=C["grey3"],
-            spaceAfter=3,  spaceBefore=14, leading=10, characterSpacing=2.2)
-SEC_TTL = S("sec_ttl", fontName=F_SERIF_B, fontSize=18,   textColor=C["ink"],
-            spaceAfter=4,  spaceBefore=2,  leading=22)
-BODY    = S("body",    fontName=F_SANS,    fontSize=9.5,  textColor=C["grey4"],
-            spaceAfter=6,  spaceBefore=0,  leading=14,   alignment=TA_JUSTIFY)
-BODY_SM = S("body_sm", fontName=F_SANS,   fontSize=8.5,  textColor=C["grey4"],
-            spaceAfter=4,  spaceBefore=0,  leading=13,   alignment=TA_JUSTIFY)
-BULLET  = S("bullet",  fontName=F_SANS,   fontSize=9.5,  textColor=C["grey4"],
-            spaceAfter=4,  spaceBefore=2,  leading=14,
-            leftIndent=12, firstLineIndent=-12)
-CARD_LBL= S("card_lbl",fontName=F_SANS_B, fontSize=7.5,  textColor=C["gold_deep"],
-            spaceAfter=4,  spaceBefore=6,  leading=10,   characterSpacing=1.8)
-KPI_N   = S("kpi_n",   fontName=F_SERIF_B,fontSize=28,   textColor=C["gold"],
-            spaceAfter=2,  spaceBefore=4,  leading=32,   alignment=TA_CENTER)
-KPI_L   = S("kpi_lbl", fontName=F_SANS,   fontSize=8.5,  textColor=C["gold_light"],
-            spaceAfter=0,  spaceBefore=0,  leading=11,   alignment=TA_CENTER)
-REF     = S("ref",     fontName=F_SANS,   fontSize=8.5,  textColor=C["grey4"],
-            spaceAfter=5,  spaceBefore=0,  leading=13,   alignment=TA_JUSTIFY,
-            leftIndent=18, firstLineIndent=-18)
-EXHIBIT = S("exhibit", fontName=F_SANS_B, fontSize=7,    textColor=C["grey3"],
-            spaceAfter=3,  spaceBefore=8,  leading=10,   characterSpacing=2)
-CHART_N = S("chart_n", fontName=F_SANS_I, fontSize=7.5, textColor=C["grey3"],
-            spaceAfter=3,  spaceBefore=2,  leading=10)
-COVER_EYE = S("cov_eye", fontName=F_SANS_B, fontSize=8.5, textColor=C["gold"],
-              spaceAfter=6, spaceBefore=0, leading=11, characterSpacing=2)
-COVER_TTL = S("cov_ttl", fontName=F_SERIF_B, fontSize=38, textColor=C["white"],
-              spaceAfter=8, spaceBefore=4, leading=44)
-COVER_SUB = S("cov_sub", fontName=F_SANS_I,  fontSize=13, textColor=C["gold_light"],
-              spaceAfter=16, spaceBefore=0, leading=18)
-COVER_BY  = S("cov_by",  fontName=F_SANS,    fontSize=10, textColor=C["grey3"],
-              spaceAfter=4, spaceBefore=0, leading=14)
 
-# ── HELPERS ───────────────────────────────────────────────────
-def gold_rule():
-    return HRFlowable(width="100%", thickness=3, color=C["gold"],
-                      spaceAfter=4, spaceBefore=0)
+# ── HEADER / FOOTER CALLBACK ──────────────────────────────────
+class _HF:
+    def __init__(self, report_date, n_regions, model_match):
+        self.report_date = report_date
+        self.n_regions   = n_regions
+        self.model_match = model_match
 
-def thin_rule():
-    return HRFlowable(width="100%", thickness=0.5, color=C["grey2"],
-                      spaceAfter=4, spaceBefore=0)
+    def __call__(self, canv, doc):
+        canv.saveState()
+        canv.setStrokeColor(GOLD)
+        canv.setLineWidth(2.5)
+        canv.line(ML, H - 11*mm, W - MR, H - 11*mm)
+        canv.setFont("Helvetica-Bold", 7)
+        canv.setFillColor(NAVY)
+        canv.drawString(ML, H - 9*mm, "SAFETY NET RISK MONITOR")
+        canv.setFont("Helvetica", 7)
+        canv.setFillColor(MUTED)
+        canv.drawRightString(W - MR, H - 9*mm,
+                             f"CONFIDENTIAL  |  {self.report_date}")
+        canv.setStrokeColor(RULE_C)
+        canv.setLineWidth(0.5)
+        canv.line(ML, 13*mm, W - MR, 13*mm)
+        canv.setFont("Helvetica", 6.5)
+        canv.setFillColor(MUTED)
+        canv.drawString(ML, 9.5*mm,
+            "Built by Sherriff Abdul-Hamid  |  Obama Foundation Leader  |  USAID  UNDP  UKAID")
+        canv.drawRightString(W - MR, 9.5*mm,
+            f"Page {canv.getPageNumber()}  |  {self.n_regions} regions  |  "
+            f"{self.model_match}% model match rate")
+        canv.restoreState()
 
-def spacer(h=6):
-    return Spacer(1, h)
-
-def bullet_p(txt):
-    return Paragraph(f"• {txt}", BULLET)
-
-def kpi_cell(num, lbl, bg=None):
-    bg = bg or C["charcoal"]
-    t = Table([[Paragraph(num, KPI_N)], [Paragraph(lbl, KPI_L)]],
-              colWidths=[1.7*inch])
-    t.setStyle(TableStyle([
-        ("BACKGROUND", (0,0), (-1,-1), bg),
-        ("ALIGN",      (0,0), (-1,-1), "CENTER"),
-        ("VALIGN",     (0,0), (-1,-1), "MIDDLE"),
-        ("TOPPADDING", (0,0), (-1,-1), 5),
-        ("BOTTOMPADDING",(0,0),(-1,-1),5),
-    ]))
-    return t
-
-def insight_card(label, body_text, bc=None):
-    bc = bc or C["gold"]
-    lp = Paragraph(label.upper(), CARD_LBL)
-    lp.style = ParagraphStyle("cl", parent=CARD_LBL, textColor=bc)
-    bp = Paragraph(body_text, BODY_SM)
-    t = Table([[lp],[bp]], colWidths=[CW*0.45])
-    t.setStyle(TableStyle([
-        ("BACKGROUND", (0,0),(-1,-1), C["white"]),
-        ("BOX",        (0,0),(-1,-1), 0.5, C["grey2"]),
-        ("LINEBEFORE", (0,0),(0,-1),  3,   bc),
-        ("LEFTPADDING",(0,0),(-1,-1), 8),
-        ("RIGHTPADDING",(0,0),(-1,-1),8),
-        ("TOPPADDING", (0,0),(-1,-1), 6),
-        ("BOTTOMPADDING",(0,0),(-1,-1),8),
-    ]))
-    return t
 
 # ── CHARTS ────────────────────────────────────────────────────
-def _chart_img(fig, w_in, h_in):
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=180, bbox_inches="tight",
-                facecolor=fig.get_facecolor())
-    buf.seek(0)
-    plt.close(fig)
-    return Image(buf, width=w_in*inch, height=h_in*inch)
-
-def make_vuln_chart(df: pd.DataFrame) -> object:
+def _vuln_chart(df) -> Image:
     df_c = df.sort_values("vulnerability_score")
-    fig, ax = plt.subplots(figsize=(5.6, max(2.6, len(df_c)*0.28)))
-    fig.patch.set_facecolor("#F8F5EE")
-    ax.set_facecolor("#F8F5EE")
-
-    palette = [HEX_BAND[b] for b in df_c["risk_band"]]
+    clr_map = {"High": "#C8382A", "Medium": "#B8560A", "Low": "#1A7A2E"}
+    bar_colors = [clr_map[b] for b in df_c["risk_band"]]
+    avg = df["vulnerability_score"].mean()
+    n   = len(df_c)
+    fig_h = max(3.8, n * 0.42)
+    fig, ax = plt.subplots(figsize=(7.4, fig_h))
     bars = ax.barh(df_c["region"], df_c["vulnerability_score"],
-                   color=palette, height=0.6)
+                   color=bar_colors, height=0.62, zorder=3)
     for bar, val in zip(bars, df_c["vulnerability_score"]):
-        ax.text(val + 0.8, bar.get_y() + bar.get_height()/2,
+        ax.text(val + 0.8, bar.get_y() + bar.get_height() / 2,
                 f"{val:.1f}", va="center", ha="left",
-                fontsize=8.5, fontweight="bold", color="#111111")
+                fontsize=7.5, color="#1A1A1A", fontweight="bold")
+    ax.axvline(avg, color="#6B7280", linestyle="--", linewidth=0.9, zorder=2)
+    ax.text(avg + 0.3, n - 0.3, f"Avg {avg:.1f}",
+            fontsize=7, color="#6B7280", va="top")
+    ax.set_xlim(0, df["vulnerability_score"].max() * 1.22)
+    ax.set_xlabel("Vulnerability Score (0-100)", fontsize=8, color="#6B7280")
+    ax.tick_params(axis="y", labelsize=8)
+    ax.tick_params(axis="x", labelsize=7.5)
+    ax.set_facecolor("white")
+    fig.patch.set_facecolor("white")
+    ax.spines[["top", "right", "left"]].set_visible(False)
+    patches = [mpatches.Patch(color=c, label=l)
+               for l, c in [("High","#C8382A"),("Medium","#B8560A"),("Low","#1A7A2E")]]
+    ax.legend(handles=patches, loc="lower right", fontsize=7,
+              framealpha=0.9, edgecolor="#E2E6EC")
+    plt.tight_layout(pad=0.5)
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=160, bbox_inches="tight")
+    plt.close(fig)
+    buf.seek(0)
+    img_h = max(58*mm, n * 10*mm)
+    return Image(buf, width=CONTENT_W, height=img_h)
 
-    avg = df_c["vulnerability_score"].mean()
-    ax.axvline(avg, color="#9A9080", linewidth=1.1, linestyle="--")
-    ax.text(avg + 0.3, -0.5, f"Avg {avg:.1f}", fontsize=7.5,
-            color="#9A9080", ha="left", va="top")
 
-    ax.set_xlim(0, df_c["vulnerability_score"].max() * 1.22)
-    ax.set_xlabel("Vulnerability score (0–100)", fontsize=8.5, color="#9A9080")
-    ax.tick_params(axis="both", labelsize=8.5, colors="#4A4035")
-    for spine in ["top","right","left"]:
-        ax.spines[spine].set_visible(False)
-    ax.spines["bottom"].set_color("#DDD8CC")
-    ax.xaxis.grid(False); ax.yaxis.grid(False)
-    # Legend patches
-    patches = [mpatches.Patch(color=HEX_BAND[b], label=b)
-               for b in ["High","Medium","Low"]]
-    ax.legend(handles=patches, fontsize=8, framealpha=0,
-              loc="lower right", labelcolor="#4A4035")
-    fig.tight_layout(pad=0.4)
-    return _chart_img(fig, 5.6, max(2.6, len(df_c)*0.28))
-
-def make_weight_chart():
-    labels  = ["Food price pressure","Employment gap",
-               "Income pressure","Housing cost"]
+def _weight_chart() -> Image:
+    indicators = ["Food price pressure (35%)", "Employment gap (30%)",
+                  "Income pressure (25%)", "Housing cost (10%)"]
     weights = [0.35, 0.30, 0.25, 0.10]
-    fig, ax = plt.subplots(figsize=(3.2, 2.0))
-    fig.patch.set_facecolor("#F8F5EE")
-    ax.set_facecolor("#F8F5EE")
-    bars = ax.barh(labels, weights, color="#0A1F44", height=0.55)
-    for bar, val in zip(bars, weights):
-        ax.text(val + 0.005, bar.get_y() + bar.get_height()/2,
-                f"{val*100:.0f}%", va="center", ha="left",
-                fontsize=8.5, fontweight="bold", color="#111111")
+    fig, ax = plt.subplots(figsize=(5.8, 2.4))
+    bars = ax.barh(indicators, weights, color="#0A1F44", height=0.55)
+    for bar, w in zip(bars, weights):
+        ax.text(w + 0.005, bar.get_y() + bar.get_height() / 2,
+                f"{w*100:.0f}%", va="center", ha="left",
+                fontsize=9, color="#1A1A1A", fontweight="bold")
     ax.set_xlim(0, 0.48)
-    ax.set_xlabel("Relative weight", fontsize=8, color="#9A9080")
-    ax.tick_params(axis="both", labelsize=8, colors="#4A4035")
-    for spine in ["top","right","left"]:
-        ax.spines[spine].set_visible(False)
-    ax.spines["bottom"].set_color("#DDD8CC")
-    ax.xaxis.grid(False); ax.yaxis.grid(False)
-    fig.tight_layout(pad=0.3)
-    return _chart_img(fig, 3.2, 2.0)
+    ax.set_xlabel("Relative Weight", fontsize=8, color="#6B7280")
+    ax.tick_params(labelsize=8.5)
+    ax.set_facecolor("white")
+    fig.patch.set_facecolor("white")
+    ax.spines[["top", "right", "left"]].set_visible(False)
+    plt.tight_layout(pad=0.4)
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=160, bbox_inches="tight")
+    plt.close(fig)
+    buf.seek(0)
+    return Image(buf, width=CONTENT_W * 0.62, height=46*mm)
 
-# ── PAGE FRAMES ───────────────────────────────────────────────
-def cover_frame(canvas, doc):
-    canvas.saveState()
-    # Full black
-    canvas.setFillColorRGB(0.063, 0.063, 0.063)
-    canvas.rect(0, 0, PW, PH, fill=1, stroke=0)
-    # Gold left stripe
-    canvas.setFillColor(C["gold"])
-    canvas.rect(0, 0, 0.12*inch, PH, fill=1, stroke=0)
-    # Geometric blocks top-right
-    canvas.setFillColorRGB(0.145, 0.145, 0.145)
-    canvas.rect(PW - 3.0*inch, PH - 3.0*inch, 3.0*inch, 3.0*inch, fill=1, stroke=0)
-    canvas.setFillColorRGB(0.165, 0.165, 0.165)
-    canvas.rect(PW - 2.5*inch, PH - 2.5*inch, 2.5*inch, 2.5*inch, fill=1, stroke=0)
-    canvas.setFillColorRGB(0.165, 0.137, 0.063)
-    canvas.rect(PW - 2.0*inch, PH - 2.0*inch, 2.0*inch, 2.0*inch, fill=1, stroke=0)
-    canvas.setFillColor(C["gold_deep"])
-    canvas.rect(PW - 1.4*inch, PH - 1.4*inch, 1.4*inch, 1.4*inch, fill=1, stroke=0)
-    # Footer bar
-    canvas.setFillColorRGB(0.04, 0.04, 0.04)
-    canvas.rect(0, 0, PW, 0.30*inch, fill=1, stroke=0)
-    canvas.restoreState()
 
-def body_frame_fn(canvas, doc):
-    canvas.saveState()
-    # White background — prevents cover bleed
-    canvas.setFillColorRGB(0.969, 0.961, 0.933)
-    canvas.rect(0, 0, PW, PH, fill=1, stroke=0)
-    # Gold top rule
-    canvas.setFillColor(C["gold"])
-    canvas.rect(0, PH - 0.055*inch, PW, 0.055*inch, fill=1, stroke=0)
-    # Footer rule
-    canvas.setStrokeColor(C["grey2"])
-    canvas.setLineWidth(0.5)
-    canvas.line(ML, MB - 0.12*inch, PW - MR, MB - 0.12*inch)
-    # Footer text
-    canvas.setFont(F_SANS_I, 7)
-    canvas.setFillColor(C["grey3"])
-    canvas.drawString(ML, MB - 0.22*inch,
-        "Confidential  |  Safety Net Risk Monitor  |  Sherriff Abdul-Hamid")
-    canvas.drawRightString(PW - MR, MB - 0.22*inch, f"Page {doc.page}")
-    canvas.restoreState()
+# ── HELPERS ───────────────────────────────────────────────────
+def _rule(story):
+    story.append(HRFlowable(width="100%", thickness=0.5, color=RULE_C,
+                             spaceAfter=4, spaceBefore=2))
 
-# ── MAIN BUILD FUNCTION ───────────────────────────────────────
-def build_report_bytes(
-    df: pd.DataFrame,
-    model_match: int = 81,
-    report_date: str | None = None,
-) -> bytes:
-    """
-    Generate McKinsey-style PDF from scored DataFrame.
-    Returns bytes suitable for st.download_button.
-    """
-    if report_date is None:
-        report_date = date.today().strftime("%B %d, %Y")
+def _section(story, label, title, sub, S):
+    story.append(Spacer(1, 6*mm))
+    if label:
+        story.append(Paragraph(label.upper(), S["label"]))
+    story.append(Paragraph(title, S["h2"]))
+    if sub:
+        story.append(Paragraph(sub, S["body_sm"]))
+    _rule(story)
 
-    n_high   = (df["risk_band"] == "High").sum()
-    n_med    = (df["risk_band"] == "Medium").sum()
-    n_low    = (df["risk_band"] == "Low").sum()
+def _kpi_row(story, kpis, S, accents=None):
+    n = len(kpis)
+    cw = CONTENT_W / n
+    accents = accents or [NAVY] * n
+    cells = []
+    for (lbl, val, sub), acc in zip(kpis, accents):
+        cells.append([
+            Paragraph(lbl.upper(), S["kpi_lbl"]),
+            Paragraph(val, S["kpi_val"]),
+            Paragraph(sub, S["kpi_sub"]),
+        ])
+    tbl = Table([cells], colWidths=[cw] * n)
+    border_cmds = [("LINEBELOW", (i, 0), (i, 0), 3.5, acc)
+                   for i, acc in enumerate(accents)]
+    tbl.setStyle(TableStyle([
+        ("VALIGN",        (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 8),
+        ("TOPPADDING",    (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("BACKGROUND",    (0, 0), (-1, -1), WHITE_C),
+        ("BOX",           (0, 0), (-1, -1), 0.5, RULE_C),
+        ("INNERGRID",     (0, 0), (-1, -1), 0.5, RULE_C),
+    ] + border_cmds))
+    story.append(tbl)
+
+
+# ── MAIN ──────────────────────────────────────────────────────
+def build_report_bytes(df, model_match=81) -> bytes:
+    buf         = io.BytesIO()
+    report_date = date.today().strftime("%B %d, %Y")
+    n_regions   = len(df)
+    S           = _S()
+
+    n_high   = int((df["risk_band"] == "High").sum())
+    n_medium = int((df["risk_band"] == "Medium").sum())
+    n_low    = int((df["risk_band"] == "Low").sum())
     pop_high = int(df[df["risk_band"] == "High"]["population"].sum())
-    top_row  = df.sort_values("vulnerability_score", ascending=False).iloc[0]
-    avg_sc   = df["vulnerability_score"].mean()
-    n_attn   = n_high + n_med
-    pct_high = n_high / len(df) * 100
-    top3_food= df.nlargest(3, "vulnerability_score")["avg_food_price_index"].mean()
+    top_r    = df.iloc[0]
+    pct_high = n_high / n_regions * 100
+    pct_med  = (n_high + n_medium) / n_regions * 100
+    top3food = df.head(3)["avg_food_price_index"].mean()
+    top_action = top_r["recommended_action"].split("+")[0].strip()
 
+    hf = _HF(report_date, n_regions, model_match)
+    frame = Frame(ML, 17*mm, CONTENT_W, H - 17*mm - 15*mm, id="body")
+    template = PageTemplate(id="main", frames=[frame], onPage=hf)
+    doc = BaseDocTemplate(
+        buf, pagesize=A4,
+        leftMargin=ML, rightMargin=MR,
+        topMargin=15*mm, bottomMargin=17*mm,
+    )
+    doc.addPageTemplates([template])
     story = []
 
-    # ═══════════════════════════════════════════════════════════
-    # PAGE 1 — COVER
-    # ═══════════════════════════════════════════════════════════
-    story += [
-        spacer(90),
-        Paragraph("SAFETY NET RISK MONITOR  ·  COMMUNITY VULNERABILITY REPORT", COVER_EYE),
-        spacer(6),
-        Paragraph("Safety Net Risk Monitor", COVER_TTL),
-        Paragraph("SNAP & Food Security Vulnerability Targeting for Program Officers",
-                  COVER_SUB),
-        HRFlowable(width=2.2*inch, thickness=2.5, color=C["gold"],
-                   spaceAfter=12, spaceBefore=0, hAlign="LEFT"),
-        Paragraph(f"Prepared by Sherriff Abdul-Hamid", COVER_BY),
-        Paragraph(f"Report date: {report_date}  ·  Regions analysed: {len(df)}  ·  "
-                  f"Model match rate: {model_match}%", COVER_BY),
-        Paragraph("Illustrative model for demonstration purposes", COVER_BY),
-        PageBreak(),
-    ]
-
-    # ═══════════════════════════════════════════════════════════
-    # PAGE 2 — EXECUTIVE SNAPSHOT
-    # ═══════════════════════════════════════════════════════════
-    story += [
-        Paragraph("EXECUTIVE SNAPSHOT", SEC_LBL),
-        gold_rule(),
-        Paragraph("High-Vulnerability Regions Identified — Priority SNAP Action Required", SEC_TTL),
-        spacer(8),
-    ]
-
-    # 4-KPI row
-    kpi_row = Table(
-        [[kpi_cell(str(n_high),  "High-risk\nregions",         C["charcoal"]),
-          kpi_cell(f"~{pop_high//1_000_000}M","People in\nhigh-risk areas",  C["charcoal"]),
-          kpi_cell(f"{model_match}%", "Model\nmatch rate",     C["gold_deep"]),
-          kpi_cell(str(n_attn),  "Regions needing\nattention", C["charcoal"])]],
-        colWidths=[1.7*inch]*4,
-        rowHeights=[0.88*inch],
-    )
-    kpi_row.setStyle(TableStyle([
-        ("ALIGN",  (0,0),(-1,-1), "CENTER"),
-        ("VALIGN", (0,0),(-1,-1), "MIDDLE"),
-        ("LEFTPADDING", (0,0),(-1,-1), 4),
-        ("RIGHTPADDING",(0,0),(-1,-1), 4),
+    # ─────────────────────────────────────────────────────────
+    # PAGE 1: COVER
+    # ─────────────────────────────────────────────────────────
+    cover_inner = Table([[
+        [Paragraph("SAFETY NET RISK MONITOR  |  SNAP &amp; FOOD SECURITY TARGETING",
+                   S["eyebrow"]),
+         Spacer(1, 3*mm),
+         Paragraph("Community Vulnerability<br/>&amp; SNAP Risk Report", S["cover_h1"]),
+         Spacer(1, 3*mm),
+         Paragraph(
+             "A proactive targeting brief for SNAP outreach coordinators, state food "
+             "security program officers, and federal poverty reduction administrators. "
+             "Combines food price pressure, employment rates, income levels, and housing "
+             "costs into a composite vulnerability score with structured policy recommendations.",
+             S["cover_sub"]),
+         Spacer(1, 4*mm),
+         Paragraph(
+             f"{n_regions} regions  |  4 indicators  |  {model_match}% model match rate  |  "
+             f"Report date: {report_date}",
+             S["cover_meta"]),
+         ]
+    ]], colWidths=[CONTENT_W - 10*mm])
+    cover_inner.setStyle(TableStyle([
+        ("BACKGROUND",    (0, 0), (-1, -1), NAVY),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 14),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 14),
+        ("TOPPADDING",    (0, 0), (-1, -1), 16),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 16),
+        ("LINEBEFORE",    (0, 0), (0, -1),  6, GOLD),
     ]))
-    story += [kpi_row, spacer(14), thin_rule()]
+    story.append(cover_inner)
+    story.append(Spacer(1, 5*mm))
 
-    # Overview narrative
-    story += [
-        Paragraph("OVERVIEW", SEC_LBL),
-        Paragraph(
-            f"This report covers {len(df)} regions. "
-            f"{n_high} regions ({pct_high:.0f}%) are in the highest vulnerability band, "
-            f"representing an estimated {pop_high:,.0f} people facing elevated food price "
-            f"pressure, employment gaps, and limited income capacity — the conditions most "
-            f"strongly associated with SNAP enrollment shortfalls. "
-            f"The top-3 regions average a food price index of {top3_food:.1f}, above the "
-            f"panel baseline, compounding cost-of-living pressure on households at or near "
-            f"eligibility thresholds. "
-            f"A scoring model assigns priority bands and achieves a {model_match}% match rate "
-            f"on held-out validation data, indicating reliable signal for initial triage.",
-            BODY),
-        spacer(6),
-    ]
+    # KPI row 1
+    _kpi_row(story, [
+        ("High-Vulnerability Regions", str(n_high),
+         f"Score >= 65 -- priority SNAP action"),
+        ("People in High-Risk Regions", f"~{pop_high/1e6:.0f}M",
+         "Estimated population in highest band"),
+        ("Top Focus Region", top_r["region"],
+         f"Score: {top_r['vulnerability_score']}"),
+        ("Model Match Rate", f"{model_match}%",
+         "Held-out validation accuracy"),
+    ], S, accents=[RED_C, GOLD, NAVY, GREEN_C])
 
-    # Priority table
-    story += [
-        Paragraph("PRIORITY BAND DISTRIBUTION", SEC_LBL),
+    story.append(Spacer(1, 3*mm))
+
+    # Band distribution table
+    band_data = [
+        [Paragraph("PRIORITY BAND", S["tbl_head"]),
+         Paragraph("COUNT", S["tbl_head"]),
+         Paragraph("% PANEL", S["tbl_head"]),
+         Paragraph("RECOMMENDED STATUS", S["tbl_head"])],
+        [Paragraph("HIGH", ParagraphStyle("h_", fontName="Helvetica-Bold",
+                    fontSize=8, textColor=RED_C, leading=10)),
+         Paragraph(str(n_high), S["tbl_cell"]),
+         Paragraph(f"{n_high/n_regions*100:.0f}%", S["tbl_cell"]),
+         Paragraph("Priority SNAP outreach -- act within 30 days", S["tbl_cell"])],
+        [Paragraph("MEDIUM", ParagraphStyle("m_", fontName="Helvetica-Bold",
+                    fontSize=8, textColor=AMBER_C, leading=10)),
+         Paragraph(str(n_medium), S["tbl_cell"]),
+         Paragraph(f"{n_medium/n_regions*100:.0f}%", S["tbl_cell"]),
+         Paragraph("Expand eligibility outreach + monthly monitoring", S["tbl_cell"])],
+        [Paragraph("LOW", ParagraphStyle("l_", fontName="Helvetica-Bold",
+                    fontSize=8, textColor=GREEN_C, leading=10)),
+         Paragraph(str(n_low), S["tbl_cell"]),
+         Paragraph(f"{n_low/n_regions*100:.0f}%", S["tbl_cell"]),
+         Paragraph("Sustain existing programs + early warning monitoring", S["tbl_cell"])],
     ]
-    hdr = dict(fontName=F_SANS_B, textColor=C["white"])
-    band_tbl = Table(
-        [[Paragraph("<b>Priority Band</b>", ParagraphStyle("th", fontName=F_SANS_B, fontSize=9, textColor=C["white"])),
-          Paragraph("<b>Regions</b>",        ParagraphStyle("th", fontName=F_SANS_B, fontSize=9, textColor=C["white"])),
-          Paragraph("<b>Definition</b>",     ParagraphStyle("th", fontName=F_SANS_B, fontSize=9, textColor=C["white"])),
-          Paragraph("<b>Recommended action</b>", ParagraphStyle("th", fontName=F_SANS_B, fontSize=9, textColor=C["white"]))],
-         [Paragraph("High",    ParagraphStyle("r1", fontName=F_SANS_B, fontSize=9, textColor=C["red"])),
-          Paragraph(str(n_high), ParagraphStyle("r1v", fontName=F_SANS_B, fontSize=9, textColor=C["red"])),
-          Paragraph("Score ≥ 65", ParagraphStyle("r1d", fontSize=9, textColor=C["grey4"])),
-          Paragraph("Priority SNAP outreach + targeted food subsidies", ParagraphStyle("r1a", fontSize=9, textColor=C["grey4"]))],
-         [Paragraph("Medium",  ParagraphStyle("r2", fontName=F_SANS_B, fontSize=9, textColor=C["amber"])),
-          Paragraph(str(n_med),  ParagraphStyle("r2v", fontName=F_SANS_B, fontSize=9, textColor=C["amber"])),
-          Paragraph("Score 40–64", ParagraphStyle("r2d", fontSize=9, textColor=C["grey4"])),
-          Paragraph("Expand eligibility outreach + monthly monitoring", ParagraphStyle("r2a", fontSize=9, textColor=C["grey4"]))],
-         [Paragraph("Low",     ParagraphStyle("r3", fontName=F_SANS_B, fontSize=9, textColor=C["green"])),
-          Paragraph(str(n_low),  ParagraphStyle("r3v", fontName=F_SANS_B, fontSize=9, textColor=C["green"])),
-          Paragraph("Score < 40", ParagraphStyle("r3d", fontSize=9, textColor=C["grey4"])),
-          Paragraph("Sustain programs + early-warning monitoring", ParagraphStyle("r3a", fontSize=9, textColor=C["grey4"]))],
-        ],
-        colWidths=[0.95*inch, 0.65*inch, 1.3*inch, 4.1*inch],
-    )
+    band_tbl = Table(band_data,
+                     colWidths=[30*mm, 20*mm, 22*mm, CONTENT_W - 72*mm])
     band_tbl.setStyle(TableStyle([
-        ("BACKGROUND",    (0,0),(-1,0),  C["charcoal"]),
-        ("ROWBACKGROUNDS",(0,1),(-1,-1), [C["white"], C["grey1"], C["white"]]),
-        ("GRID",          (0,0),(-1,-1), 0.4, C["grey2"]),
-        ("VALIGN",        (0,0),(-1,-1), "MIDDLE"),
-        ("TOPPADDING",    (0,0),(-1,-1), 5),
-        ("BOTTOMPADDING", (0,0),(-1,-1), 5),
-        ("LEFTPADDING",   (0,0),(-1,-1), 7),
-        ("RIGHTPADDING",  (0,0),(-1,-1), 7),
+        ("BACKGROUND",    (0, 0), (-1, 0),  NAVY),
+        ("BACKGROUND",    (0, 1), (-1, 1),  RED_LT),
+        ("BACKGROUND",    (0, 2), (-1, 2),  AMBER_LT),
+        ("BACKGROUND",    (0, 3), (-1, 3),  GREEN_LT),
+        ("LINEBEFORE",    (0, 1), (0, 1),   4, RED_C),
+        ("LINEBEFORE",    (0, 2), (0, 2),   4, AMBER_C),
+        ("LINEBEFORE",    (0, 3), (0, 3),   4, GREEN_C),
+        ("GRID",          (0, 0), (-1, -1), 0.5, RULE_C),
+        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 7),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 7),
+        ("TOPPADDING",    (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
     ]))
-    story += [band_tbl, spacer(10), PageBreak()]
+    story.append(band_tbl)
+    story.append(PageBreak())
 
-    # ═══════════════════════════════════════════════════════════
-    # PAGE 3 — POLICY BRIEF (Risk / Implication / Action)
-    # ═══════════════════════════════════════════════════════════
-    story += [
-        Paragraph("POLICY BRIEF", SEC_LBL),
-        gold_rule(),
-        Paragraph("Risk · Implication · Action — Structured Decision Summary for Program Directors",
-                  SEC_TTL),
-        spacer(8),
-    ]
+    # ─────────────────────────────────────────────────────────
+    # PAGE 2: POLICY BRIEF
+    # ─────────────────────────────────────────────────────────
+    _section(story, "Policy Brief", "Risk  |  Implication  |  Action Now",
+             "Structured decision summary for program directors and policy teams.", S)
 
-    brief_data = [
-        ("RISK",       C["red"],
-         f"{n_high} region(s) ({pct_high:.0f}% of this panel) are in the highest vulnerability band. "
-         f"Combined, they represent an estimated {pop_high:,.0f} people facing elevated food price "
-         f"pressure and low employment — the conditions most predictive of SNAP coverage gaps. "
-         f"Budget concentration risk is elevated if outreach resources are spread evenly across all regions."),
-        ("IMPLICATION",C["navy"],
-         f"{n_attn} of {len(df)} regions require active attention — either immediate SNAP outreach "
-         f"or structured monitoring. Top-3 regions average a food price index of {top3_food:.1f}, "
-         f"above the panel baseline, compounding cost pressure on households at or near eligibility "
-         f"thresholds. Without proactive intervention, caseload spikes in high-band regions are likely "
-         f"to exceed administrative processing capacity."),
-        ("ACTION NOW", C["green"],
-         f"(1) Deploy targeted SNAP outreach in all High-band regions within 30 days. "
-         f"(2) Schedule food and labour programme confirmations for high-stress areas. "
-         f"(3) Set monthly review triggers for Medium-band regions. "
-         f"(4) Link disbursements to food-price and employment monitoring data. "
-         f"(5) Flag {top_row['region']} (highest score: {top_row['vulnerability_score']:.1f}) "
-         f"for immediate programme manager review."),
-    ]
+    cw3 = CONTENT_W / 3
+    brief_tbl = Table([[
+        [Paragraph("RISK", ParagraphStyle("rl", fontName="Helvetica-Bold",
+                    fontSize=8, textColor=RED_C, leading=11)),
+         Spacer(1, 2*mm),
+         Paragraph(
+             f"<b>{n_high} regions</b> ({pct_high:.0f}% of the panel) are in the highest "
+             f"vulnerability band. Combined, they represent an estimated "
+             f"<b>~{pop_high/1e6:.0f}M people</b> facing elevated food price pressure, "
+             "low employment, and limited income capacity -- the conditions that most "
+             "strongly predict SNAP enrollment gaps.",
+             S["body"])],
+        [Paragraph("IMPLICATION", ParagraphStyle("im", fontName="Helvetica-Bold",
+                    fontSize=8, textColor=NAVY, leading=11)),
+         Spacer(1, 2*mm),
+         Paragraph(
+             f"<b>{pct_med:.0f}% of regions</b> require active attention -- either immediate "
+             f"SNAP outreach or structured monitoring. Top-3 regions average a food price "
+             f"index of <b>{top3food:.1f}</b>, above the panel baseline, compounding cost-of-"
+             "living pressure on households already at or near eligibility thresholds.",
+             S["body"])],
+        [Paragraph("ACTION NOW", ParagraphStyle("an", fontName="Helvetica-Bold",
+                    fontSize=8, textColor=GREEN_C, leading=11)),
+         Spacer(1, 2*mm),
+         Paragraph(
+             "(1) Deploy targeted SNAP outreach in all High-band regions within 30 days. "
+             "(2) Schedule food and labour program confirmations for high-stress areas. "
+             "(3) Set monthly review triggers for Medium-band regions. "
+             "(4) Link disbursements to food-price and employment monitoring data.",
+             S["body"])],
+    ]], colWidths=[cw3, cw3, cw3])
+    brief_tbl.setStyle(TableStyle([
+        ("VALIGN",        (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 10),
+        ("TOPPADDING",    (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+        ("BACKGROUND",    (0, 0), (-1, -1), WHITE_C),
+        ("BOX",           (0, 0), (-1, -1), 0.5, RULE_C),
+        ("INNERGRID",     (0, 0), (-1, -1), 0.5, RULE_C),
+        ("LINEABOVE",     (0, 0), (0, 0),   3.5, RED_C),
+        ("LINEABOVE",     (1, 0), (1, 0),   3.5, NAVY),
+        ("LINEABOVE",     (2, 0), (2, 0),   3.5, GREEN_C),
+    ]))
+    story.append(brief_tbl)
 
-    for lbl, bc, body_txt in brief_data:
-        lbl_p  = Paragraph(lbl, ParagraphStyle("bl", parent=CARD_LBL, textColor=bc))
-        body_p = Paragraph(body_txt, BODY_SM)
-        card = Table([[lbl_p],[body_p]], colWidths=[CW])
-        card.setStyle(TableStyle([
-            ("BACKGROUND", (0,0),(-1,-1), C["white"]),
-            ("BOX",        (0,0),(-1,-1), 0.5, C["grey2"]),
-            ("LINEBEFORE", (0,0),(0,-1),  4,   bc),
-            ("LINEABOVE",  (0,0),(-1,0),  0.5, C["grey2"]),
-            ("LEFTPADDING",(0,0),(-1,-1), 10),
-            ("RIGHTPADDING",(0,0),(-1,-1),10),
-            ("TOPPADDING", (0,0),(-1,-1), 8),
-            ("BOTTOMPADDING",(0,0),(-1,-1),10),
+    story.append(Spacer(1, 4*mm))
+    _kpi_row(story, [
+        ("Priority Action (Now)", top_action,
+         f"For top focus region: {top_r['region']}"),
+        ("Expected Impact (Indicative)", "Lower food-cost pressure ~2%",
+         "Indicative scenario, not causal guarantee"),
+        ("Regions Needing Attention", str(n_high + n_medium),
+         "High or medium vulnerability -- action or monitoring needed"),
+    ], S, accents=[RED_C, AMBER_C, NAVY])
+    story.append(PageBreak())
+
+    # ─────────────────────────────────────────────────────────
+    # PAGE 3: CHARTS
+    # ─────────────────────────────────────────────────────────
+    _section(story, "Charts", "Vulnerability Score by Region",
+             "All regions ranked by composite score, color-coded by priority band.", S)
+    story.append(_vuln_chart(df))
+
+    story.append(Spacer(1, 5*mm))
+    _section(story, "", "Indicator Weights and Methodology",
+             "How the composite vulnerability score is constructed.", S)
+
+    weight_row = Table([[
+        _weight_chart(),
+        [Paragraph("HOW THE SCORE IS BUILT", S["label"]),
+         Spacer(1, 2*mm),
+         Paragraph(
+             "Four indicators, each normalised 0-100 and weighted by policy relevance. "
+             "Higher scores indicate greater vulnerability to food insecurity.",
+             S["body"]),
+         Spacer(1, 2*mm),
+         Paragraph("<b>Food price index (35%)</b> -- cost-of-food pressure vs. panel median", S["body"]),
+         Paragraph("<b>Employment rate (30%)</b> -- labour market capacity (inverted)", S["body"]),
+         Paragraph("<b>Income index (25%)</b> -- household income capacity (inverted)", S["body"]),
+         Paragraph("<b>Housing cost index (10%)</b> -- cost-of-shelter burden", S["body"]),
+         Spacer(1, 3*mm),
+         Paragraph(
+             "Score thresholds:  High >= 65  |  Medium >= 40  |  Low < 40",
+             S["body"]),
+         Spacer(1, 3*mm),
+         Paragraph(
+             f"Model match rate: <b>{model_match}%</b> on held-out validation regions.",
+             S["body"]),
+         ],
+    ]], colWidths=[CONTENT_W * 0.60, CONTENT_W * 0.40])
+    weight_row.setStyle(TableStyle([
+        ("VALIGN",        (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 8),
+        ("TOPPADDING",    (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    story.append(weight_row)
+    story.append(PageBreak())
+
+    # ─────────────────────────────────────────────────────────
+    # PAGE 4+: REGIONAL INSIGHTS
+    # ─────────────────────────────────────────────────────────
+    _section(story, "Regional Insights", "Plain-Language Read Per Region",
+             "Score, reasoning, and recommended action for every region in the panel.", S)
+
+    for _, row in df.iterrows():
+        band = row["risk_band"]
+        acc  = BAND_RLCOLOR[band]
+        bg   = BAND_RLBG[band]
+        pill_ps = ParagraphStyle("pill", fontName="Helvetica-Bold",
+                                 fontSize=7, textColor=acc, leading=9,
+                                 alignment=TA_RIGHT)
+        meta_str = (
+            f"Score: <b>{row['vulnerability_score']}</b>   "
+            f"Food index: <b>{row['avg_food_price_index']:.1f}</b>   "
+            f"Employment: <b>{row['avg_employment_rate']:.1f}%</b>   "
+            f"Population: <b>{row['population']/1e6:.1f}M</b>"
+        )
+        row_tbl = Table([[
+            [Paragraph(row["region"], S["insight_r"]),
+             Paragraph(meta_str, S["body_sm"]),
+             Spacer(1, 1.5*mm),
+             Paragraph(row["why_this_outlook"], S["insight_w"]),
+             Spacer(1, 1*mm),
+             Paragraph(f"Recommended: {row['recommended_action']}", S["action"])],
+            [Paragraph(band.upper(), pill_ps)],
+        ]], colWidths=[CONTENT_W - 18*mm, 18*mm])
+        row_tbl.setStyle(TableStyle([
+            ("VALIGN",        (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING",   (0, 0), (0, -1),  9),
+            ("RIGHTPADDING",  (0, 0), (-1, -1), 6),
+            ("TOPPADDING",    (0, 0), (-1, -1), 7),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+            ("BACKGROUND",    (0, 0), (-1, -1), bg),
+            ("BOX",           (0, 0), (-1, -1), 0.5, RULE_C),
+            ("LINEBEFORE",    (0, 0), (0, -1),  4, acc),
         ]))
-        story += [card, spacer(8)]
+        story.append(KeepTogether([row_tbl, Spacer(1, 2*mm)]))
 
     story.append(PageBreak())
 
-    # ═══════════════════════════════════════════════════════════
-    # PAGE 4 — VULNERABILITY CHART + METHODOLOGY
-    # ═══════════════════════════════════════════════════════════
-    story += [
-        Paragraph("EXHIBIT 1  |  VULNERABILITY SCORE BY REGION", EXHIBIT),
-        gold_rule(),
-        Paragraph("All Regions Ranked by Composite Vulnerability Score — Priority Band Color-Coded",
-                  SEC_TTL),
-        spacer(6),
+    # ─────────────────────────────────────────────────────────
+    # FULL REGIONAL TABLE
+    # ─────────────────────────────────────────────────────────
+    _section(story, "Full Regional Panel",
+             "All Regions Ranked by Vulnerability Score",
+             "Complete dataset with scores, indicators, and recommended actions.", S)
+
+    tbl_header = [
+        Paragraph("RANK",       S["tbl_head"]),
+        Paragraph("REGION",     S["tbl_head"]),
+        Paragraph("BAND",       S["tbl_head"]),
+        Paragraph("SCORE",      S["tbl_head"]),
+        Paragraph("FOOD IDX",   S["tbl_head"]),
+        Paragraph("EMPLOYMENT", S["tbl_head"]),
+        Paragraph("POPULATION", S["tbl_head"]),
     ]
-
-    chart_img = make_vuln_chart(df)
-    weight_img= make_weight_chart()
-
-    chart_row = Table(
-        [[chart_img, Spacer(0.15*inch, 1), weight_img]],
-        colWidths=[5.6*inch, 0.15*inch, 3.2*inch],
-    )
-    chart_row.setStyle(TableStyle([
-        ("VALIGN",(0,0),(-1,-1),"TOP"),
-        ("LEFTPADDING",(0,0),(-1,-1),0),
-        ("RIGHTPADDING",(0,0),(-1,-1),0),
-    ]))
-    story += [
-        chart_row,
-        Paragraph("← Lower score = lower vulnerability.  Dashed line = panel average.  "
-                  "Color = priority band (red = High, amber = Medium, green = Low).", CHART_N),
-        spacer(10), thin_rule(),
-    ]
-
-    # Methodology box
-    story += [
-        Paragraph("METHODOLOGY NOTE", SEC_LBL),
-        Paragraph("How the Vulnerability Score Is Constructed", SEC_TTL),
-        spacer(4),
-        Paragraph(
-            "The composite vulnerability score combines four publicly available indicators, "
-            "each normalised 0–100 (higher = more stress) and weighted by policy relevance:",
-            BODY),
-    ]
-    for lbl, wt, src in [
-        ("Food price index (35%)",    "Primary driver",  "USDA Economic Research Service Food Price Outlook"),
-        ("Employment rate (30%)",     "Labour market capacity — inverted (low employment = high stress)",
-                                                         "BLS Local Area Unemployment Statistics"),
-        ("Income index (25%)",        "Household capacity to afford food and care — inverted",
-                                                         "ACS Table B19013 — Median Household Income"),
-        ("Housing cost index (10%)",  "Cost-of-shelter burden relative to national baseline",
-                                                         "HUD Fair Market Rents"),
-    ]:
-        story.append(bullet_p(f"<b>{lbl}</b> — {src}"))
-
-    story += [
-        spacer(6),
-        Paragraph(
-            f"Priority bands: High (score ≥ 65), Medium (40–64), Low (< 40). "
-            f"A logistic regression classifier assigns bands and achieves a {model_match}% "
-            f"match rate on held-out validation regions — providing reliable signal for "
-            f"initial triage. Field validation with administrative programme data is "
-            f"recommended before use in official targeting cycles.",
-            BODY),
-        PageBreak(),
-    ]
-
-    # ═══════════════════════════════════════════════════════════
-    # PAGE 5 — REGIONAL POLICY INSIGHTS
-    # ═══════════════════════════════════════════════════════════
-    story += [
-        Paragraph("EXHIBIT 2  |  REGIONAL POLICY INSIGHTS", EXHIBIT),
-        gold_rule(),
-        Paragraph("Why Each Region Is Ranked as It Is — Indicators, Score, and Recommended Action",
-                  SEC_TTL),
-        spacer(6),
-    ]
-
-    # Table header
-    th = ParagraphStyle("th2", fontName=F_SANS_B, fontSize=8.5, textColor=C["white"])
-    td = ParagraphStyle("td2", fontName=F_SANS,    fontSize=8.5, textColor=C["grey4"])
-    td_b = ParagraphStyle("tdb",fontName=F_SANS_B, fontSize=8.5, textColor=C["ink"])
-
-    rows = [[
-        Paragraph("Region",       th),
-        Paragraph("Band",         th),
-        Paragraph("Score",        th),
-        Paragraph("Food Idx",     th),
-        Paragraph("Employment",   th),
-        Paragraph("Population",   th),
-    ]]
-    for _, row in df.sort_values("vulnerability_score", ascending=False).iterrows():
-        bc = BAND_COLOR[row["risk_band"]]
-        rows.append([
-            Paragraph(row["region"],                        td_b),
-            Paragraph(f'<font color="{HEX_BAND[row["risk_band"]]}">'
-                      f'<b>{row["risk_band"]}</b></font>', td_b),
-            Paragraph(f'{row["vulnerability_score"]:.1f}', td_b),
-            Paragraph(f'{row["avg_food_price_index"]:.1f}',td),
-            Paragraph(f'{row["avg_employment_rate"]:.1f}%',td),
-            Paragraph(f'{row["population"]/1e6:.1f}M',     td),
+    tbl_rows = [tbl_header]
+    for _, row in df.iterrows():
+        band   = row["risk_band"]
+        acc    = BAND_RLCOLOR[band]
+        band_p = ParagraphStyle("bps", fontName="Helvetica-Bold",
+                                fontSize=7, textColor=acc, leading=9)
+        tbl_rows.append([
+            Paragraph(str(int(row["rank"])),             S["tbl_cell"]),
+            Paragraph(row["region"],                     S["tbl_bold"]),
+            Paragraph(band,                              band_p),
+            Paragraph(str(row["vulnerability_score"]),   S["tbl_bold"]),
+            Paragraph(f"{row['avg_food_price_index']:.1f}", S["tbl_cell"]),
+            Paragraph(f"{row['avg_employment_rate']:.1f}%", S["tbl_cell"]),
+            Paragraph(f"{row['population']/1e6:.1f}M",   S["tbl_cell"]),
         ])
 
-    ins_tbl = Table(rows, colWidths=[2.0*inch, 0.75*inch, 0.65*inch,
-                                      0.75*inch, 0.95*inch, 0.85*inch])
-    ins_tbl.setStyle(TableStyle([
-        ("BACKGROUND",    (0,0),(-1,0),  C["charcoal"]),
-        ("ROWBACKGROUNDS",(0,1),(-1,-1), [C["white"], C["grey1"]]),
-        ("GRID",          (0,0),(-1,-1), 0.4, C["grey2"]),
-        ("VALIGN",        (0,0),(-1,-1), "MIDDLE"),
-        ("TOPPADDING",    (0,0),(-1,-1), 5),
-        ("BOTTOMPADDING", (0,0),(-1,-1), 5),
-        ("LEFTPADDING",   (0,0),(-1,-1), 6),
-        ("RIGHTPADDING",  (0,0),(-1,-1), 6),
-    ]))
-    story += [ins_tbl, spacer(10)]
-
-    # Narrative insights
-    story.append(Paragraph("PLAIN-LANGUAGE INSIGHTS BY REGION", SEC_LBL))
-    for _, row in df.sort_values("vulnerability_score", ascending=False).iterrows():
-        bc  = BAND_COLOR[row["risk_band"]]
-        hx  = HEX_BAND[row["risk_band"]]
-        lp  = Paragraph(
-            f'<font color="{hx}"><b>{row["region"]}</b></font>  ·  '
-            f'{row["risk_band"]} (score {row["vulnerability_score"]:.1f})',
-            ParagraphStyle("ri_h", fontName=F_SANS_B, fontSize=9.5,
-                           textColor=C["ink"], spaceBefore=8, spaceAfter=2, leading=13)
-        )
-        wp  = Paragraph(f'<i>{row["why_this_outlook"]}</i>', BODY_SM)
-        ap  = Paragraph(f'→ <b>{row["recommended_action"]}</b>',
-                        ParagraphStyle("ri_a", fontName=F_SANS, fontSize=8.5,
-                                       textColor=C["navy"], spaceBefore=2, spaceAfter=2,
-                                       leading=12))
-        inner = Table([[lp],[wp],[ap]], colWidths=[CW])
-        inner.setStyle(TableStyle([
-            ("BACKGROUND",    (0,0),(-1,-1), C["white"]),
-            ("BOX",           (0,0),(-1,-1), 0.5, C["grey2"]),
-            ("LINEBEFORE",    (0,0),(0,-1),  3,   bc),
-            ("LEFTPADDING",   (0,0),(-1,-1), 8),
-            ("RIGHTPADDING",  (0,0),(-1,-1), 8),
-            ("TOPPADDING",    (0,0),(-1,-1), 5),
-            ("BOTTOMPADDING", (0,0),(-1,-1), 7),
-        ]))
-        story += [inner, spacer(5)]
-
+    col_w = [12*mm, 44*mm, 18*mm, 18*mm, 20*mm, 24*mm, CONTENT_W - 136*mm]
+    full_tbl = Table(tbl_rows, colWidths=col_w, repeatRows=1)
+    row_styles = [
+        ("BACKGROUND",    (0, 0), (-1, 0),  NAVY),
+        ("GRID",          (0, 0), (-1, -1), 0.4, RULE_C),
+        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 5),
+        ("TOPPADDING",    (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("ROWBACKGROUNDS",(0, 1), (-1, -1), [WHITE_C, LIGHT_BG]),
+    ]
+    for i, (_, row) in enumerate(df.iterrows(), start=1):
+        clr = BAND_RLCOLOR[row["risk_band"]]
+        row_styles.append(("LINEBEFORE", (0, i), (0, i), 3.5, clr))
+    full_tbl.setStyle(TableStyle(row_styles))
+    story.append(full_tbl)
     story.append(PageBreak())
 
-    # ═══════════════════════════════════════════════════════════
-    # PAGE 6 — SCOPE NOTE + BYLINE
-    # ═══════════════════════════════════════════════════════════
-    story += [
-        Paragraph("SCOPE NOTE & LIMITATIONS", SEC_LBL),
-        gold_rule(),
-        Paragraph("Results Should Be Interpreted in Context — Four Key Caveats",
-                  SEC_TTL),
-        spacer(8),
-    ]
+    # ─────────────────────────────────────────────────────────
+    # SCOPE NOTE & BYLINE
+    # ─────────────────────────────────────────────────────────
+    _section(story, "Methodology and Scope",
+             "Scope Note, Limitations and Data Sources",
+             "Caveats for programme directors and government partners.", S)
 
-    caveats = [
+    scope_items = [
         ("Illustrative data",
-         "Built-in figures are composite sample data for product demonstration. "
-         "Production SNAP targeting requires official data from USDA FNS, ACS, "
-         "BLS, and state administrative records."),
-        ("Model limitations",
-         f"The {model_match}% match rate reflects accuracy on a held-out sample. "
-         "Rankings should be validated against programme-level enrolment data "
-         "and case supervisor review before use in official targeting cycles."),
-        ("Impact estimates",
-         "Figures such as 'could lower food-cost pressure by ~2%' are indicative "
-         "scenario ranges, not causal guarantees. Use as planning estimates only."),
-        ("External validity",
-         "Indicator weights reflect general policy relevance. Local conditions — "
-         "geography, programme capacity, political context — may shift optimal "
-         "targeting priorities in ways the model cannot fully capture."),
+         "Built-in figures are composite illustrations for product demonstration. "
+         "For live SNAP targeting, replace with CSV data from state administrative records "
+         "or connect to USDA Food and Nutrition Service administrative data sources."),
+        ("Composite scoring",
+         "The vulnerability score combines four indicators using a weighted linear model. "
+         "Weights (35/30/25/10) reflect policy relevance, not causal impact estimates. "
+         "Results should inform, not replace, professional judgement."),
+        ("Impact caveats",
+         "Expected impact figures are indicative scenarios based on prior programme "
+         "evaluations. They are not causal guarantees and should be treated as "
+         "directional guidance only."),
+        ("Model match rate",
+         f"The {model_match}% model match rate reflects performance on a held-out "
+         "validation set of historical regions. Future performance may vary as economic "
+         "conditions and programme contexts evolve."),
     ]
-
-    for i, (title, body_txt) in enumerate(caveats):
-        n_p  = Paragraph(str(i+1), ParagraphStyle("cn", fontName=F_SANS_B,
-                         fontSize=20, textColor=C["gold_deep"], leading=24))
-        t_p  = Paragraph(f"<b>{title}</b>", ParagraphStyle("ct", fontName=F_SANS_B,
-                         fontSize=9.5, textColor=C["ink"], leading=13))
-        b_p  = Paragraph(body_txt, ParagraphStyle("cb", fontSize=8.5,
-                         textColor=C["grey4"], leading=12))
-        cell = Table([[n_p, t_p],[n_p, b_p]],
-                     colWidths=[0.35*inch, CW/2 - 0.5*inch])
-        # simpler: one-column card
-        card2= Table([[t_p],[b_p]], colWidths=[CW/2 - 0.2*inch])
-        card2.setStyle(TableStyle([
-            ("BACKGROUND", (0,0),(-1,-1), C["white"]),
-            ("BOX",        (0,0),(-1,-1), 0.5, C["grey2"]),
-            ("LINEABOVE",  (0,0),(-1,0),  3,   C["gold_deep"]),
-            ("LEFTPADDING",(0,0),(-1,-1), 8),
-            ("RIGHTPADDING",(0,0),(-1,-1),8),
-            ("TOPPADDING", (0,0),(-1,-1), 6),
-            ("BOTTOMPADDING",(0,0),(-1,-1),8),
+    for i, (title, text) in enumerate(scope_items):
+        num_ps = ParagraphStyle("num", fontName="Times-Bold",
+                                fontSize=16, textColor=GOLD, leading=18)
+        sc = Table([[
+            Paragraph(f"{i+1}", num_ps),
+            [Paragraph(title, S["h3"]),
+             Paragraph(text, S["body"])],
+        ]], colWidths=[14*mm, CONTENT_W - 14*mm])
+        sc.setStyle(TableStyle([
+            ("VALIGN",        (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING",   (0, 0), (-1, -1), 8),
+            ("TOPPADDING",    (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ("BACKGROUND",    (0, 0), (-1, -1), LIGHT_BG),
+            ("BOX",           (0, 0), (-1, -1), 0.5, RULE_C),
+            ("LINEBEFORE",    (0, 0), (0, -1),  3.5, GOLD),
         ]))
-        if i % 2 == 0:
-            _buf_left = card2
-        else:
-            pair = Table([[_buf_left, Spacer(0.12*inch,1), card2]],
-                         colWidths=[CW/2 - 0.1*inch, 0.12*inch, CW/2 - 0.1*inch])
-            pair.setStyle(TableStyle([
-                ("VALIGN",(0,0),(-1,-1),"TOP"),
-                ("LEFTPADDING",(0,0),(-1,-1),0),
-                ("RIGHTPADDING",(0,0),(-1,-1),0),
-            ]))
-            story += [pair, spacer(10)]
-    if len(caveats) % 2 != 0:
-        story += [_buf_left, spacer(10)]
+        story.append(sc)
+        story.append(Spacer(1, 2*mm))
 
-    story += [
-        spacer(10), thin_rule(), spacer(6),
-        Paragraph(
-            "Prepared by <b>Sherriff Abdul-Hamid</b> — Product leader specializing in "
-            "government digital services, SNAP and safety net benefits delivery, and "
-            "proactive targeting tools for historically underserved communities. "
-            "Former Founder & CEO, Poverty 360 (25,000+ beneficiaries served across West Africa). "
-            "Obama Foundation Leaders Award (Top 1.3%) · Mandela Washington Fellow (Top 0.3%) · "
-            "Harvard Business School.",
-            ParagraphStyle("byline", fontName=F_SANS_I, fontSize=8, textColor=C["grey3"],
-                           spaceAfter=4, spaceBefore=0, leading=12)),
-        Paragraph(
-            f"Report generated: {report_date}  |  "
-            "All built-in data is illustrative. "
-            "For official SNAP programme targeting, pair with USDA FNS and state administrative data.",
-            ParagraphStyle("scope2", fontName=F_SANS_I, fontSize=7.5, textColor=C["grey3"],
-                           spaceAfter=0, spaceBefore=0, leading=11)),
-    ]
+    story.append(Spacer(1, 6*mm))
+    _rule(story)
 
-    # ═══════════════════════════════════════════════════════════
-    # BUILD — Two-PDF merge strategy to prevent canvas bleed
-    # ═══════════════════════════════════════════════════════════
-    cover_buf = io.BytesIO()
-    c = rl_canvas.Canvas(cover_buf, pagesize=letter)
-    cover_frame(c, type("D", (), {"page": 1})())
-    # Draw cover text directly
-    c.setFont(F_SANS_B, 8.5)
-    c.setFillColor(C["gold"])
-    c.drawString(ML + 0.15*inch, PH - 1.85*inch,
-                 "SAFETY NET RISK MONITOR  ·  COMMUNITY VULNERABILITY REPORT")
-    c.setFont(F_SERIF_B, 38)
-    c.setFillColor(C["white"])
-    c.drawString(ML + 0.15*inch, PH - 2.62*inch, "Safety Net")
-    c.drawString(ML + 0.15*inch, PH - 3.08*inch, "Risk Monitor")
-    c.setFont(F_SANS_I, 13)
-    c.setFillColor(C["gold_light"])
-    c.drawString(ML + 0.15*inch, PH - 3.52*inch,
-                 "SNAP & Food Security Vulnerability Targeting for Program Officers")
-    c.setFillColor(C["gold"])
-    c.rect(ML + 0.15*inch, PH - 3.78*inch, 2.2*inch, 0.04*inch, fill=1, stroke=0)
-    c.setFont(F_SANS, 10)
-    c.setFillColor(C["grey3"])
-    c.drawString(ML + 0.15*inch, PH - 4.04*inch, "Prepared by Sherriff Abdul-Hamid")
-    c.setFont(F_SANS_I, 8.5)
-    c.setFillColor(colors.HexColor("#4A4030"))
-    c.drawString(ML + 0.15*inch, PH - 4.28*inch,
-                 f"Report date: {report_date}  ·  Regions: {len(df)}  ·  "
-                 f"Model match rate: {model_match}%")
-    c.save()
+    byline = Table([[
+        [Paragraph("Built by Sherriff Abdul-Hamid",
+                   ParagraphStyle("bln", fontName="Helvetica-Bold",
+                                  fontSize=9, textColor=INK, leading=12)),
+         Spacer(1, 1*mm),
+         Paragraph(
+             "Product leader specialising in government digital services, SNAP and "
+             "safety net benefits delivery, and proactive targeting tools for "
+             "underserved communities. Former Founder and CEO, Poverty 360 "
+             "(25,000+ beneficiaries served).",
+             S["body"]),
+         Spacer(1, 2*mm),
+         Paragraph(
+             "Obama Foundation Leaders Award (Top 1.3%)  |  Mandela Washington Fellow  "
+             "|  Harvard Business School  |  USAID  UNDP  UKAID",
+             S["italic_sm"]),
+         ],
+        [Paragraph(
+             f"Report generated: {report_date}<br/>"
+             f"Regions analysed: {n_regions}<br/>"
+             f"Model match rate: {model_match}%<br/>"
+             "Data: Illustrative",
+             ParagraphStyle("mr", fontName="Helvetica", fontSize=8,
+                            textColor=MUTED, leading=12, alignment=TA_RIGHT)),
+         ],
+    ]], colWidths=[CONTENT_W * 0.68, CONTENT_W * 0.32])
+    byline.setStyle(TableStyle([
+        ("VALIGN",        (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 8),
+        ("TOPPADDING",    (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("BACKGROUND",    (0, 0), (-1, -1), LIGHT_BG),
+        ("BOX",           (0, 0), (-1, -1), 0.5, RULE_C),
+        ("LINEBEFORE",    (0, 0), (0, -1),  4, GOLD),
+    ]))
+    story.append(byline)
 
-    body_buf = io.BytesIO()
-
-    class _WBCanvas(rl_canvas.Canvas):
-        def __init__(self, *a, **kw):
-            super().__init__(*a, **kw)
-            self._pg = 2
-            self._paint()
-        def _paint(self):
-            self.saveState()
-            self.setFillColorRGB(0.969, 0.961, 0.933)
-            self.rect(0, 0, PW, PH, fill=1, stroke=0)
-            self.setFillColor(C["gold"])
-            self.rect(0, PH - 0.055*inch, PW, 0.055*inch, fill=1, stroke=0)
-            self.setStrokeColor(C["grey2"])
-            self.setLineWidth(0.5)
-            self.line(ML, MB - 0.12*inch, PW - MR, MB - 0.12*inch)
-            self.setFont(F_SANS_I, 7)
-            self.setFillColor(C["grey3"])
-            self.drawString(ML, MB - 0.22*inch,
-                "Confidential  |  Safety Net Risk Monitor  |  Sherriff Abdul-Hamid")
-            self.drawRightString(PW - MR, MB - 0.22*inch, f"Page {self._pg}")
-            self.restoreState()
-        def showPage(self):
-            super().showPage()
-            self._pg += 1
-            self._paint()
-
-    from reportlab.platypus import SimpleDocTemplate
-    body_doc = SimpleDocTemplate(
-        body_buf, pagesize=letter,
-        leftMargin=ML, rightMargin=MR, topMargin=MT, bottomMargin=MB,
-        title="Safety Net Risk Monitor Report",
-        author="Sherriff Abdul-Hamid",
-    )
-    body_doc.build(story, canvasmaker=_WBCanvas)
-
-    # Merge
-    out = io.BytesIO()
-    writer = PdfWriter()
-    for buf in [cover_buf, body_buf]:
-        buf.seek(0)
-        for page in PdfReader(buf).pages:
-            writer.add_page(page)
-    writer.write(out)
-    return out.getvalue()
+    doc.build(story)
+    buf.seek(0)
+    return buf.read()
